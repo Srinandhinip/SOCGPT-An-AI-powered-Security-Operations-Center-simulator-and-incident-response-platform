@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SOCGPT · Investigations</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/v2.css">
+  <link rel="stylesheet" href="css/v3.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <header class="page-head reveal">
+      <div>
+        <h1 class="grad-text">Investigations</h1>
+        <p class="sub">Every incident, the AI's analysis, and the remediation plans waiting for a human decision.</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" id="refreshBtn"></button>
+      </div>
+    </header>
+
+    <div id="queue"></div>
+
+    <div class="toolbar reveal" style="--d:.1s">
+      <div class="search">
+        <span id="searchIc"></span>
+        <input type="search" id="q" placeholder="Search by id, IP, attack, MITRE, tactic…" autocomplete="off">
+        <kbd>/</kbd>
+      </div>
+      <div class="seg-group" id="sevGroup">
+        <button data-sev="" class="on">All</button>
+        <button data-sev="CRITICAL">Critical</button>
+        <button data-sev="HIGH">High</button>
+        <button data-sev="MEDIUM">Medium</button>
+        <button data-sev="LOW">Low</button>
+      </div>
+      <select id="status" aria-label="Status filter">
+        <option value="">All statuses</option>
+        <option value="OPEN">Open</option>
+        <option value="AWAITING_APPROVAL">Awaiting approval</option>
+        <option value="REMEDIATED">Remediated</option>
+        <option value="CLOSED">Closed</option>
+      </select>
+      <select id="sort" aria-label="Sort order">
+        <option value="new">Newest first</option>
+        <option value="risk">Highest risk</option>
+        <option value="attn">Needs attention first</option>
+      </select>
+      <span class="result-count" id="count"></span>
+    </div>
+
+    <div class="table-wrap reveal" style="--d:.18s">
+      <div class="rows">
+        <div class="row-head">
+          <span>Severity</span><button data-sort="new">ID</button><span>Attack</span><span>Source IP</span>
+          <span>MITRE ATT&amp;CK</span><button data-sort="risk">Risk</button><button data-sort="attn">Status</button><button data-sort="new" style="text-align:right">Age</button>
+        </div>
+        <div id="rows"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" aria-label="Incident details"></aside>
+
+<script src="js/common.js"></script>
+<script>
+(function () {
+  'use strict';
+  SOC.mountSidebar('inc');
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+
+  const state = {
+    list: [], maxId: null, fresh: new Set(), lastRows: '',
+    q: params.get('q') || '', sev: (params.get('sev') || '').toUpperCase(), status: params.get('status') || '', sort: 'new',
+    selected: null, detail: null, detailKey: '', tab: 'report', pending: {}, celebrate: null, busy: false
+  };
+
+  $('refreshBtn').innerHTML = SOC.icon('refresh', 16) + ' Refresh';
+  $('searchIc').innerHTML = SOC.icon('search', 16);
+  $('q').value = state.q;
+  $('status').value = state.status;
+  const syncSev = () => $('sevGroup').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.sev === state.sev));
+  syncSev();
+
+  /* ======================= list ======================= */
+  const haystack = (i) => [i.incidentId, '#' + i.incidentId, i.eventType, SOC.eventMeta(i.eventType).label, i.sourceIp, i.mitreId, i.techniqueName, i.tactic, i.csfFunction, i.severity, SOC.STATUS_LABEL[i.status], i.classification, i.chainId ? 'chain #' + i.chainId : ''].join(' ').toLowerCase();
+
+  function filtered() {
+    const q = state.q.trim().toLowerCase();
+    let l = state.list.filter((i) => (!state.sev || i.severity === state.sev) && (!state.status || i.status === state.status) && (!q || haystack(i).includes(q)));
+    if (state.sort === 'risk') l.sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0) || b.incidentId - a.incidentId);
+    else if (state.sort === 'attn') l.sort((a, b) => (b.status === 'AWAITING_APPROVAL') - (a.status === 'AWAITING_APPROVAL') || (b.riskScore || 0) - (a.riskScore || 0) || b.incidentId - a.incidentId);
+    else l.sort((a, b) => b.incidentId - a.incidentId);
+    return l;
+  }
+
+  function renderRows(force) {
+    const l = filtered();
+    const key = JSON.stringify(l) + '|' + state.selected + '|' + Math.floor(Date.now() / 10000);
+    $('count').textContent = l.length + ' of ' + state.list.length + ' incidents';
+    if (!force && key === state.lastRows) return;
+    state.lastRows = key;
+    if (!l.length) {
+      $('rows').innerHTML = `<div class="empty">${SOC.icon('search', 34)}<b>${state.list.length ? 'No incidents match these filters' : 'No incidents yet'}</b>${state.list.length ? 'Try clearing the search or the filters.' : 'Launch an attack from the Command Center to create one.'}</div>`;
+      return;
+    }
+    $('rows').innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' + l.map((i) => {
+      const meta = SOC.eventMeta(i.eventType), c = SOC.sevColor(i.severity), risk = i.riskScore || 0;
+      return `<div class="row ${state.selected === i.incidentId ? 'sel' : ''} ${state.fresh.has(i.incidentId) ? 'fresh' : ''} ${i.status === 'AWAITING_APPROVAL' ? 'needs' : ''}" data-id="${i.incidentId}" style="--c:${c}" tabindex="0">
+        <div>${SOC.sevPill(i.severity)}</div>
+        <div class="mono">#${i.incidentId}</div>
+        <div class="cell-type"><span class="t-ic">${SOC.icon(meta.icon, 18)}</span><div style="min-width:0"><b>${SOC.esc(meta.label)}${i.chainId ? `<span class="chain-badge" title="Part of a multi-stage attack">${SOC.icon('link', 11)} Chain #${i.chainId}</span>` : ''}</b><small>${SOC.esc(i.classification || i.techniqueName || 'Awaiting AI analysis')}</small></div></div>
+        <div class="mono">${SOC.esc(i.sourceIp || '—')}</div>
+        <div class="cell-mitre"><span class="chip mitre">${SOC.esc(i.mitreId || '—')}</span><small>${SOC.esc(i.tactic || '')}</small></div>
+        <div class="risk"><div class="track"><i style="width:${risk}%"></i></div><b>${risk}</b></div>
+        <div>${SOC.statusBadge(i.status)}</div>
+        <div class="age">${SOC.timeAgo(i.createdAt)}</div>
+      </div>`;
+    }).join('') + '</div>';
+    state.fresh.clear();
+  }
+
+  function renderQueue() {
+    const waiting = state.list.filter((i) => i.status === 'AWAITING_APPROVAL');
+    if (!waiting.length) { $('queue').innerHTML = ''; return; }
+    $('queue').innerHTML = `<div class="queue-banner reveal">
+      <div class="q-ic">${SOC.icon('clock', 22)}</div>
+      <div><b>${waiting.length} remediation plan${waiting.length === 1 ? '' : 's'} waiting for your decision</b><span>Nothing runs until a human approves it. Start with the riskiest.</span></div>
+      <button class="btn primary" id="reviewNext">Review next ${SOC.icon('play', 14)}</button></div>`;
+  }
+  $('queue').addEventListener('click', (e) => {
+    if (!e.target.closest('#reviewNext')) return;
+    const next = state.list.filter((i) => i.status === 'AWAITING_APPROVAL').sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0))[0];
+    if (next) openDrawer(next.incidentId);
+  });
+
+  /* ======================= filters ======================= */
+  let qTimer;
+  $('q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = $('q').value; renderRows(true); }, 120); });
+  $('sevGroup').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; state.sev = b.dataset.sev; syncSev(); renderRows(true); });
+  $('status').addEventListener('change', () => { state.status = $('status').value; renderRows(true); });
+  $('sort').addEventListener('change', () => { state.sort = $('sort').value; renderRows(true); });
+  document.querySelector('.row-head').addEventListener('click', (e) => { const b = e.target.closest('[data-sort]'); if (!b) return; state.sort = b.dataset.sort; $('sort').value = state.sort; renderRows(true); });
+  $('refreshBtn').addEventListener('click', () => { refresh(); SOC.toast('Refreshed', '', 'info', 1400); });
+  $('rows').addEventListener('click', (e) => { const r = e.target.closest('.row'); if (r) openDrawer(Number(r.dataset.id)); });
+  $('rows').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const r = e.target.closest('.row'); if (r) openDrawer(Number(r.dataset.id)); } });
+
+  /* ======================= drawer ======================= */
+  const drawer = $('drawer'), overlay = $('overlay');
+
+  async function openDrawer(id) {
+    if (state.selected !== id) { state.tab = 'report'; state.detail = null; state.detailKey = ''; }
+    state.selected = id;
+    history.replaceState(null, '', '?id=' + id);
+    drawer.classList.add('open'); overlay.classList.add('show'); document.body.classList.add('drawer-open');
+    if (!state.detail) drawer.innerHTML = `<div class="d-head"><div class="d-title"><div><h2>Incident #${id}</h2><p>Loading…</p></div><button class="d-close" id="dClose">${SOC.icon('x', 18)}</button></div></div><div class="d-body"><div class="skel" style="height:16px;width:80%;margin-bottom:12px"></div><div class="skel" style="height:16px;width:60%"></div></div>`;
+    renderRows(true);
+    await loadDetail();
+  }
+  function closeDrawer() {
+    state.selected = null; state.detail = null; state.detailKey = '';
+    drawer.classList.remove('open'); overlay.classList.remove('show'); document.body.classList.remove('drawer-open');
+    history.replaceState(null, '', location.pathname);
+    renderRows(true);
+  }
+  overlay.addEventListener('click', closeDrawer);
+
+  async function loadDetail() {
+    const id = state.selected;
+    if (!id) return;
+    try {
+      const d = await SOC.api('/api/incidents/' + id);
+      if (state.selected !== id) return;
+      const key = JSON.stringify(d);
+      if (key !== state.detailKey) { state.detail = d; state.detailKey = key; renderDrawer(); }
+    } catch (e) {
+      if (state.selected === id && !state.detail) drawer.innerHTML = `<div class="d-head"><div class="d-title"><div><h2>Incident #${id}</h2><p>${SOC.esc(e.message)}</p></div><button class="d-close" id="dClose">${SOC.icon('x', 18)}</button></div></div>`;
+      throw e;
+    }
+  }
+
+  const thinking = (msg) => `<div class="thinking"><div class="t-row"><span class="spin"></span>${msg}<span class="dots"><span></span><span></span><span></span></span></div>
+      <div class="skel" style="height:14px;width:92%;margin-bottom:10px"></div><div class="skel" style="height:14px;width:78%;margin-bottom:10px"></div><div class="skel" style="height:14px;width:60%"></div></div>`;
+
+  function reanalysing(d) {
+    const p = state.pending[d.incident.incidentId];
+    if (!p) return false;
+    const cur = d.plan ? d.plan.planId : null;
+    if (cur !== p.planId || Date.now() - p.at > 120000) { delete state.pending[d.incident.incidentId]; return false; }
+    return true;
+  }
+
+  function pipeline(d) {
+    const hasReport = !!d.report, plan = d.plan, ps = plan && plan.status, busy = reanalysing(d);
+    const steps = [
+      ['Detected', 'done'],
+      ['Mapped', d.mapping ? 'done' : 'todo'],
+      ['AI analysis', busy ? 'active' : hasReport ? 'done' : 'active'],
+      ['Plan ready', busy ? 'todo' : plan ? 'done' : hasReport ? 'active' : 'todo'],
+      ['Approved', busy ? 'todo' : ps === 'APPROVED' || ps === 'EXECUTED' ? 'done' : ps === 'REJECTED' ? 'fail' : ps === 'PENDING' ? 'active' : 'todo'],
+      ['Recovered', busy ? 'todo' : ps === 'EXECUTED' ? 'done' : ps === 'APPROVED' ? 'active' : 'todo']
+    ];
+    return '<div class="pipe">' + steps.map(([label, s], i) =>
+      `<div class="pstep ${s}"><div class="node">${s === 'done' ? SOC.icon('check', 14) : s === 'fail' ? SOC.icon('x', 14) : s === 'active' ? '<span class="spin" style="width:11px;height:11px;border-width:2px"></span>' : i + 1}</div>${label}</div>`).join('') + '</div>';
+  }
+
+  const PLAN_ICON = { Containment: 'lock', Eradication: 'wrench', Recovery: 'refresh', Validation: 'check', Prevention: 'shield' };
+  const PLAN_STATUS = {
+    PENDING: ['Pending approval', 'st-AWAITING_APPROVAL'], APPROVED: ['Approved', 'st-REMEDIATED'],
+    EXECUTED: ['Executed (simulated)', 'st-INVESTIGATING'], REJECTED: ['Rejected', 'sev-CRITICAL']
+  };
+
+  function tabReport(d) {
+    const r = d.report;
+    if (reanalysing(d)) return thinking('AI is re-analysing this incident');
+    if (!r && d.ai && !d.ai.inFlight && (d.ai.error || d.incident.status === 'OPEN')) {
+      return `<div class="callout bad"><b>The AI could not finish this investigation.</b><br>${SOC.esc(d.ai.error || 'No report was produced (the backend may have restarted while it was working).')}</div>
+        <p style="color:var(--muted);margin-top:14px">Check that the Python agent is running on port 8000 and that the Gemini key in <span class="mono">agents-python/.env</span> is valid, then press <b>Re-run AI analysis</b>.</p>`;
+    }
+    if (!r) return thinking('AI is investigating this incident') + '<p style="color:var(--muted);margin-top:14px">This usually takes 5 to 20 seconds. The page updates by itself.</p>';
+    const conf = Math.max(0, Math.min(1, Number(r.confidence) || 0)), C = 2 * Math.PI * 44;
+    const col = conf >= 0.75 ? '#34d399' : conf >= 0.5 ? '#fbbf24' : '#fb7185';
+    const ev = SOC.parseJsonList(r.evidence);
+    return `
+      <div class="report-top">
+        <div class="ring"><svg viewBox="0 0 108 108"><circle class="bg" cx="54" cy="54" r="44"/><circle class="fg" id="ringFg" cx="54" cy="54" r="44" stroke="${col}" stroke-dasharray="${C}" stroke-dashoffset="${C}" data-to="${C * (1 - conf)}"/></svg>
+          <div class="c"><div><b>${Math.round(conf * 100)}%</b><small>confidence</small></div></div></div>
+        <div><div class="field-label" style="margin-top:0">Classification</div><b style="font-size:18px;line-height:1.3;display:block">${SOC.esc(r.classification || 'Unclassified')}</b>
+          <div style="margin-top:9px"><span class="chip">${SOC.icon('sparkle', 13)} AI report #${r.reportId} · ${SOC.timeAgo(r.generatedAt)}</span></div></div>
+      </div>
+      <div class="field-label">${SOC.icon('file', 14)} Summary</div><p class="summary">${SOC.esc(r.summary)}</p>
+      <div class="field-label">${SOC.icon('alert', 14)} Impact if not contained</div><div class="callout">${SOC.esc(r.impact || 'Not assessed')}</div>
+      ${ev.length ? `<div class="field-label">${SOC.icon('search', 14)} Evidence</div><ul class="evidence">${ev.map((x) => `<li>${SOC.icon('check', 16)}<span>${SOC.esc(x)}</span></li>`).join('')}</ul>` : ''}
+      ${similarBlock(d)}`;
+  }
+
+  function similarBlock(d) {
+    const sim = d.similar || [];
+    if (!sim.length) return '';
+    return `<div class="field-label">${SOC.icon('layers', 14)} Similar past incidents (RAG)</div><div class="sim-list">` + sim.map((s) => {
+      const meta = SOC.eventMeta(s.eventType);
+      const outcome = s.rejected ? `<span class="sim-outcome no">${SOC.icon('x', 13)} A plan was rejected${s.rejectionReason ? ': ' + SOC.esc(s.rejectionReason) : ''}</span>`
+        : (s.planOutcome === 'APPROVED' || s.planOutcome === 'EXECUTED') ? `<span class="sim-outcome ok">${SOC.icon('check', 13)} Plan ${s.planOutcome === 'EXECUTED' ? 'approved and executed' : 'approved'}</span>` : '';
+      return `<a class="sim-item" href="incidents.html?id=${s.incidentId}"><div class="sim-top"><b>#${s.incidentId} · ${SOC.esc(s.classification || meta.label)}</b>${SOC.sevPill(s.severity)}<span class="sim-score">${Math.round((s.similarity || 0) * 100)}% match</span></div>
+        <p>${SOC.esc(s.summary || '')}</p>${outcome}</a>`;
+    }).join('') + '</div><p style="color:var(--dim);font-size:12px;margin:8px 0 0">The AI was shown these when it wrote this report, including what analysts approved or rejected.</p>';
+  }
+
+  function tabPlan(d) {
+    const p = d.plan;
+    if (reanalysing(d)) return thinking('AI is drafting a fresh remediation plan');
+    if (!p) return `<div class="empty" style="padding:40px 10px">${SOC.icon('wrench', 32)}<b>No plan yet</b>The AI drafts a plan right after its investigation.</div>`;
+    const steps = SOC.parseJsonList(p.steps), st = PLAN_STATUS[p.status] || [p.status, 'st-CLOSED'];
+    const celebrating = state.celebrate === d.incident.incidentId && p.status === 'EXECUTED';
+    let who = '';
+    if (p.approvedByName) who = `<span style="color:var(--muted)">${p.status === 'REJECTED' ? 'Decided' : 'Approved'} by <b style="color:var(--text)">${SOC.esc(p.approvedByName)}</b> · ${SOC.timeAgo(p.approvedAt)}</span>`;
+    return `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+        <b style="font-size:16px">Remediation plan #${p.planId}</b><span class="st ${st[1]}">${st[0]}</span>${who}
+      </div>
+      <div class="tl" id="planTl">${steps.map((s, i) => `
+        <div class="tl-item ${p.status === 'EXECUTED' && !celebrating ? 'done' : ''}" data-i="${i}">
+          <div class="tl-node">${p.status === 'EXECUTED' ? SOC.icon('check', 18) : SOC.icon(PLAN_ICON[s.stage] || 'wrench', 18)}</div>
+          <div class="tl-card"><small>Step ${i + 1} · ${SOC.esc(s.stage)}</small><p>${SOC.esc(s.action)}</p></div>
+        </div>`).join('')}</div>`;
+  }
+
+  function tabMapping(d) {
+    const m = d.mapping, i = d.incident, meta = SOC.eventMeta(i.eventType), c = SOC.sevColor(i.severity);
+    return `<div class="info-grid">
+      <div class="info"><small>MITRE ATT&amp;CK technique</small><div class="big">${SOC.esc(m ? m.mitreId : i.mitreId || '—')}</div><b style="margin-top:6px">${SOC.esc(m ? m.techniqueName : '')}</b><p>Tactic: ${SOC.esc(m ? m.tactic : '—')}</p>
+        ${m && /^T\d{4}$/.test(m.mitreId) ? `<p><a class="a-link" target="_blank" rel="noopener" href="https://attack.mitre.org/techniques/${m.mitreId}/">Open on attack.mitre.org ↗</a></p>` : ''}</div>
+      <div class="info"><small>NIST CSF 2.0 function</small><div class="big" style="font-family:inherit;color:var(--cyan)">${SOC.esc(m ? m.csfFunction : i.csfFunction || '—')}</div><p>${SOC.esc(m ? m.csfDescription : '')}</p></div>
+      <div class="info"><small>Attack details</small><b>${SOC.esc(meta.label)}</b><p>Source IP: <span class="mono">${SOC.esc(i.sourceIp || '—')}</span></p><p>Event #${SOC.esc(i.eventId)} · detected ${SOC.fmtTime(i.detectedAt || i.createdAt)}</p></div>
+      <div class="info"><small>Detection</small><b>${SOC.esc(i.severity)} · risk ${i.riskScore || 0}/100</b><p>See the Risk tab for exactly how this score was reached.</p></div>
+    </div>`;
+  }
+
+  function tabRisk(d) {
+    const i = d.incident, c = SOC.sevColor(i.severity), risk = i.riskScore || 0;
+    let factors = []; try { factors = JSON.parse(i.riskFactors || '[]'); } catch (e) { factors = []; }
+    return `<div class="risk-hero"><b style="color:${c}">${risk}</b><span>/ 100 · severity <b style="font-size:inherit;color:${c}">${SOC.esc(i.severity)}</b></span></div>
+      <div class="risk-bar" style="--c:${c}"><i id="riskFill" data-w="${risk}" style="width:0"></i></div>
+      <div class="field-label" style="margin-top:4px">${SOC.icon('chart', 14)} Why this score?</div>
+      ${factors.length ? '<div class="rf-list">' + factors.map((f, n) => `<div class="rf ${n === 0 ? 'base' : ''} ${f.name === 'Severity escalated' ? 'esc' : ''}"><div class="pts">${f.name === 'Severity escalated' ? '↑' : n === 0 ? f.points : '+' + f.points}</div><div><b>${SOC.esc(f.name)}</b><small>${SOC.esc(f.detail)}</small></div></div>`).join('') + '</div>'
+        : '<p style="color:var(--muted)">No breakdown was stored for this incident (it was raised before risk scoring existed).</p>'}
+      <p style="color:var(--dim);font-size:12px;margin-top:12px">The detection rule sets the baseline. Context can only raise the score and can only upgrade the severity, never lower it.</p>`;
+  }
+
+  function tabChain(d) {
+    const ch = d.chain, here = d.incident.incidentId;
+    if (!ch) return `<div class="empty" style="padding:40px 10px">${SOC.icon('link', 32)}<b>Not part of an attack chain</b>A chain forms when one IP shows two or more different attack stages within 30 minutes.</div>`;
+    const steps = (ch.members || []).map((m, n) => {
+      const meta = SOC.eventMeta(m.eventType);
+      return (n ? `<div class="chain-arrow">${SOC.icon('play', 14)}</div>` : '') + `<a class="chain-step ${m.incidentId === here ? 'here' : ''}" href="incidents.html?id=${m.incidentId}">
+        <small>Stage ${n + 1} · ${SOC.esc(m.tactic || '')}</small><b>${SOC.esc(meta.label)}</b>
+        <div class="meta">${SOC.sevPill(m.severity)}<span class="chip mitre">${SOC.esc(m.mitreId || '')}</span></div>
+        <div class="meta" style="margin-top:6px">#${m.incidentId} · ${SOC.timeAgo(m.detectedAt)}</div></a>`;
+    }).join('');
+    return `<div class="chain-summary"><b>${SOC.icon('link', 15)} ${SOC.esc(ch.description || 'Multi-stage attack')}</b>
+        <span>Chain #${ch.chainId} · ${ch.stages} distinct stages · overall risk ${ch.overallRisk}/100 · ${SOC.esc(ch.status)}</span></div>
+      <div class="chain-viz">${steps}</div>
+      <p style="color:var(--muted);font-size:12.5px">Several different attack stages from one source IP in a short time usually mean a real, progressing intrusion. The AI was told about the whole chain when it analysed this incident.</p>`;
+  }
+
+  const AUDIT_TITLE = { APPROVE_REMEDIATION: 'Plan approved', REJECT_REMEDIATION: 'Plan rejected', EXECUTE_REMEDIATION_SIMULATED: 'Recovery executed (simulated)',
+    REINVESTIGATE: 'AI re-analysis requested', EXPORT_REPORT_PDF: 'PDF report exported', AI_INVESTIGATION_FAILED: 'AI investigation failed' };
+  const AUDIT_ICON = { REJECT_REMEDIATION: ['x', '#fb7185'], EXECUTE_REMEDIATION_SIMULATED: ['play', '#22d3ee'], APPROVE_REMEDIATION: ['check', '#34d399'],
+    REINVESTIGATE: ['refresh', '#a78bfa'], EXPORT_REPORT_PDF: ['download', '#8c97b3'], AI_INVESTIGATION_FAILED: ['alert', '#fb7185'] };
+  function tabActivity(d) {
+    const i = d.incident, ev = [];
+    ev.push({ t: i.detectedAt || i.createdAt, icon: 'alert', title: 'Incident detected', text: SOC.eventMeta(i.eventType).label + ' from ' + (i.sourceIp || 'unknown') + ' · rule engine raised ' + i.severity, c: SOC.sevColor(i.severity) });
+    if (d.report) ev.push({ t: d.report.generatedAt, icon: 'sparkle', title: 'AI investigation completed', text: (d.report.classification || 'Report generated') + ' · confidence ' + Math.round((d.report.confidence || 0) * 100) + '%', c: '#22d3ee' });
+    if (d.plan) ev.push({ t: d.plan.createdAt, icon: 'wrench', title: 'Remediation plan drafted', text: 'Plan #' + d.plan.planId + ' is waiting for a human decision', c: '#fbbf24' });
+    if (d.chain) ev.push({ t: d.chain.updatedAt, icon: 'link', title: 'Part of attack chain #' + d.chain.chainId, text: d.chain.description || '', c: '#e879f9' });
+    (d.audit || []).forEach((a) => { const ai = AUDIT_ICON[a.action] || ['file', '#8c97b3']; ev.push({ t: a.createdAt, icon: ai[0], title: AUDIT_TITLE[a.action] || a.action, text: (a.details || '') + (a.username ? ' · by ' + a.username : ''), c: ai[1] }); });
+    (d.notifications || []).forEach((n) => ev.push({ t: n.sentAt || n.createdAt, icon: 'mail', title: n.status === 'SENT' ? 'E-mail sent' : n.status === 'FAILED' ? 'E-mail failed' : 'E-mail queued', text: (n.subject || '') + ' → ' + n.recipient + (n.error ? ' (' + n.error + ')' : ''), c: n.status === 'FAILED' ? '#fb7185' : '#67e8f9' }));
+    ev.sort((a, b) => (SOC.parseTime(a.t) || 0) - (SOC.parseTime(b.t) || 0));
+    return '<div class="tl">' + ev.map((e) => `<div class="tl-item"><div class="tl-node" style="--c:${e.c}">${SOC.icon(e.icon, 18)}</div><div class="tl-card"><small>${SOC.fmtTime(e.t)}</small><b>${SOC.esc(e.title)}</b><p>${SOC.esc(e.text)}</p></div></div>`).join('') + '</div>';
+  }
+
+  function footer(d) {
+    const p = d.plan, i = d.incident, perms = d.permissions || {}, user = SOC.me(), who = user ? SOC.esc(user.username) : 'you';
+    const note = (t, warn) => `<div class="note ${warn ? 'warn' : ''}">${t}</div>`;
+    const pdf = `<button class="btn" data-act="pdf">${SOC.icon('download', 16)} PDF report</button>`;
+    if (reanalysing(d) || (d.ai && d.ai.inFlight)) return `<button class="btn block" disabled><span class="spin"></span> AI is working…</button>`;
+    if (p && p.status === 'PENDING') {
+      if (!perms.canDecide) return note(SOC.esc(perms.decideReason || 'You cannot decide on this plan.'), true) + `<div class="btn-row">${pdf}</div>`;
+      return note(`Deciding as <b>${who}</b>. Your choice is saved in the audit log.`) +
+        `<div class="btn-row"><button class="btn danger" data-act="reject">${SOC.icon('x', 16)} Reject</button><button class="btn success" data-act="approve">${SOC.icon('check', 16)} Approve plan</button></div>`;
+    }
+    if (p && p.status === 'APPROVED') {
+      if (!perms.canExecute) return note(SOC.esc(perms.executeReason || 'Only a SOC manager can run the recovery.'), true) + `<div class="btn-row">${pdf}</div>`;
+      return note(`Approved. Now run the (simulated) recovery as <b>${who}</b>.`) + `<div class="btn-row">${pdf}<button class="btn cyan" data-act="execute">${SOC.icon('play', 16)} Run simulated recovery</button></div>`;
+    }
+    if (p && p.status === 'EXECUTED')
+      return note('Recovery completed and the incident is closed. Full history is in the audit log.') + `<div class="btn-row">${pdf}<a class="btn" href="audit.html">${SOC.icon('file', 16)} View audit log</a></div>`;
+    if (i.status === 'OPEN') {
+      const again = perms.canReinvestigate ? `<button class="btn primary" data-act="reinvestigate">${SOC.icon('refresh', 16)} Re-run AI analysis</button>` : '';
+      return note(p && p.status === 'REJECTED' ? 'The plan was rejected. Ask the AI for a fresh one.' : d.report ? 'No plan exists yet.' : 'The AI has not produced a report.') + `<div class="btn-row">${d.report ? pdf : ''}${again}</div>`;
+    }
+    return note('Waiting for the AI to finish its analysis.');
+  }
+
+  function renderDrawer() {
+    const d = state.detail;
+    if (!d) return;
+    const i = d.incident, meta = SOC.eventMeta(i.eventType), c = SOC.sevColor(i.severity);
+    const prevScroll = drawer.querySelector('.d-body') ? drawer.querySelector('.d-body').scrollTop : 0;
+    const tabs = [['report', 'AI Report'], ['plan', 'Remediation Plan'], ['risk', 'Risk'], ['mapping', 'Frameworks']];
+    if (d.chain) tabs.push(['chain', 'Attack chain']);
+    tabs.push(['activity', 'Activity']);
+    if (!tabs.some(([k]) => k === state.tab)) state.tab = 'report';
+    const body = { report: tabReport, plan: tabPlan, risk: tabRisk, mapping: tabMapping, chain: tabChain, activity: tabActivity }[state.tab](d);
+    drawer.innerHTML = `
+      <div class="d-head" style="--c:${c}">
+        <div class="d-title"><span class="t-ic" style="--c:${c}">${SOC.icon(meta.icon, 24)}</span>
+          <div><h2>Incident #${i.incidentId} · ${SOC.esc(meta.label)}</h2><p><span class="mono">${SOC.esc(i.sourceIp || '—')}</span> · detected ${SOC.timeAgo(i.detectedAt || i.createdAt)}</p></div>
+          <button class="d-close" id="dClose" aria-label="Close">${SOC.icon('x', 18)}</button></div>
+        <div class="d-badges">${SOC.sevPill(i.severity)}${SOC.statusBadge(i.status)}<span class="chip mitre">${SOC.esc(i.mitreId || '—')}</span><span class="chip csf">CSF · ${SOC.esc(i.csfFunction || '—')}</span><span class="chip">Risk ${i.riskScore || 0}/100</span>${i.chainId ? `<span class="chain-badge" style="margin-left:0">${SOC.icon('link', 11)} Chain #${i.chainId}</span>` : ''}</div>
+      </div>
+      ${pipeline(d)}
+      <div class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${state.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="d-body">${body}</div>
+      <div class="d-foot">${footer(d)}</div>`;
+    drawer.querySelector('.d-body').scrollTop = prevScroll;
+
+    // animate the confidence ring and the "recovery done" ticks
+    const ring = $('ringFg');
+    if (ring) requestAnimationFrame(() => requestAnimationFrame(() => { ring.style.strokeDashoffset = ring.dataset.to; }));
+    const rf = $('riskFill');
+    if (rf) requestAnimationFrame(() => requestAnimationFrame(() => { rf.style.width = rf.dataset.w + '%'; }));
+    if (state.celebrate === i.incidentId && state.tab === 'plan' && d.plan && d.plan.status === 'EXECUTED') {
+      state.celebrate = null;
+      drawer.querySelectorAll('#planTl .tl-item').forEach((el, k) => setTimeout(() => el.classList.add('done'), 250 + k * 260));
+    }
+  }
+
+  drawer.addEventListener('click', async (e) => {
+    if (e.target.closest('#dClose')) return closeDrawer();
+    const tab = e.target.closest('[data-tab]');
+    if (tab) { state.tab = tab.dataset.tab; renderDrawer(); return; }
+    const act = e.target.closest('[data-act]');
+    if (act && !state.busy) await runAction(act.dataset.act);
+  });
+
+  /* ======================= actions ======================= */
+  async function runAction(kind) {
+    const d = state.detail, i = d.incident, user = SOC.me() || { username: 'you' };
+    if (kind === 'pdf') {
+      try {
+        await SOC.download(`/api/incidents/${i.incidentId}/report.pdf`, `incident-${i.incidentId}-report.pdf`);
+        SOC.toast('PDF report downloaded', 'Saved as incident-' + i.incidentId + '-report.pdf', 'success', 3200);
+      } catch (err) { SOC.toast('Could not download the report', err.message, 'error', 6000); }
+      return;
+    }
+    const n = d.plan ? SOC.parseJsonList(d.plan.steps).length : 0;
+    let url, opts = { method: 'POST' }, okMsg;
+
+    if (kind === 'approve') {
+      const m = await SOC.modal({ title: 'Approve this remediation plan?', icon: 'check', tone: 'success', confirmText: 'Approve plan',
+        message: `You are authorising <b>${n} remediation steps</b> for incident #${i.incidentId}. This is recorded in the audit log as <b>${SOC.esc(user.username)}</b>.` });
+      if (!m.ok) return;
+      url = `/remediation-plans/${d.plan.planId}/approve`; okMsg = ['Plan approved', 'Incident #' + i.incidentId + ' is now remediated.'];
+    } else if (kind === 'reject') {
+      const m = await SOC.modal({ title: 'Reject this plan?', icon: 'x', tone: 'danger', confirmText: 'Reject plan', input: 'Why are you rejecting it? (optional, saved in the audit log)',
+        message: 'The incident goes back to <b>Open</b>. You can then ask the AI to try again.' });
+      if (!m.ok) return;
+      url = `/remediation-plans/${d.plan.planId}/reject` + (m.value ? '?reason=' + encodeURIComponent(m.value) : ''); okMsg = ['Plan rejected', 'Incident #' + i.incidentId + ' is back to Open.'];
+    } else if (kind === 'execute') {
+      const m = await SOC.modal({ title: 'Run the simulated recovery?', icon: 'play', tone: 'cyan', confirmText: 'Run recovery',
+        message: 'Each approved step is carried out (simulated) and the incident is closed.' });
+      if (!m.ok) return;
+      url = `/remediation-plans/${d.plan.planId}/execute`; okMsg = ['Recovery complete', 'Incident #' + i.incidentId + ' is closed.'];
+      state.celebrate = i.incidentId; state.tab = 'plan';
+    } else if (kind === 'reinvestigate') {
+      url = `/api/incidents/${i.incidentId}/reinvestigate`; okMsg = ['AI re-analysis started', 'A fresh report and plan will appear here shortly.'];
+      state.pending[i.incidentId] = { planId: d.plan ? d.plan.planId : null, at: Date.now() };
+    } else return;
+
+    state.busy = true;
+    drawer.querySelectorAll('[data-act]').forEach((b) => { b.disabled = true; });
+    try {
+      await SOC.api(url, opts);
+      SOC.toast(okMsg[0], okMsg[1], 'success');
+      if (kind === 'approve') state.tab = 'plan';
+    } catch (err) {
+      delete state.pending[i.incidentId]; state.celebrate = null;
+      SOC.toast('Action failed', err.message, 'error', 6500);
+    } finally {
+      state.busy = false;
+      state.detailKey = '';
+      await refresh();
+    }
+  }
+
+  /* ======================= refresh loop ======================= */
+  async function load() {
+    const list = await SOC.api('/api/incidents');
+    const maxNow = list.reduce((m, i) => Math.max(m, i.incidentId), 0);
+    if (state.maxId !== null && maxNow > state.maxId) list.filter((i) => i.incidentId > state.maxId).forEach((i) => state.fresh.add(i.incidentId));
+    state.maxId = maxNow;
+    state.list = list;
+    SOC.setNavBadge(list.filter((i) => i.status === 'AWAITING_APPROVAL').length);
+    renderQueue();
+    renderRows(false);
+    if (state.selected) await loadDetail();
+  }
+  const refresh = SOC.poll(load, 3000);
+
+  /* ======================= keyboard ======================= */
+  document.addEventListener('keydown', (e) => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ''));
+    if (e.key === '/' && !typing) { e.preventDefault(); $('q').focus(); return; }
+    if (e.key === 'Escape') { if (typing && e.target === $('q')) { $('q').blur(); return; } if (state.selected) closeDrawer(); return; }
+    if (state.selected && !typing && (e.key === 'j' || e.key === 'k')) {
+      const l = filtered(), idx = l.findIndex((x) => x.incidentId === state.selected), nx = l[idx + (e.key === 'j' ? 1 : -1)];
+      if (nx) openDrawer(nx.incidentId);
+    }
+  });
+
+  // deep link: incidents.html?id=12
+  const deep = Number(params.get('id'));
+  if (deep) openDrawer(deep);
+})();
+</script>
+</body>
+</html>

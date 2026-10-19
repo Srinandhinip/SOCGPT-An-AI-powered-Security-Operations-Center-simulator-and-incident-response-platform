@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SOCGPT · Audit &amp; Governance</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/v2.css">
+  <link rel="stylesheet" href="css/v3.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <header class="page-head reveal">
+      <div>
+        <h1 class="grad-text">Audit &amp; Governance</h1>
+        <p class="sub">A permanent record of who approved, rejected or executed what. This is the “Govern” part of NIST CSF in action.</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" id="exportBtn"></button>
+      </div>
+    </header>
+
+    <section class="a-stats" id="aStats"></section>
+
+    <div class="toolbar reveal" style="--d:.2s">
+      <div class="search">
+        <span id="searchIc"></span>
+        <input type="search" id="q" placeholder="Search by user, incident, reason…" autocomplete="off">
+        <kbd>/</kbd>
+      </div>
+      <div class="seg-group" id="actGroup">
+        <button data-g="" class="on">All</button>
+        <button data-g="APPROVE">Approved</button>
+        <button data-g="REJECT">Rejected</button>
+        <button data-g="EXECUTE">Executed</button>
+        <button data-g="ACCESS">Access</button>
+        <button data-g="OTHER">Other</button>
+      </div>
+      <select id="userSel" aria-label="User filter"><option value="">Everyone</option></select>
+      <span class="result-count" id="count"></span>
+    </div>
+
+    <div id="list" class="reveal" style="--d:.26s"></div>
+  </main>
+</div>
+
+<script src="js/common.js"></script>
+<script>
+(function () {
+  'use strict';
+  SOC.mountSidebar('audit');
+  const $ = (id) => document.getElementById(id);
+  const state = { rows: [], q: '', g: '', user: '', maxId: null, fresh: new Set(), lastKey: '' };
+
+  $('exportBtn').innerHTML = SOC.icon('download', 16) + ' Export CSV';
+  $('searchIc').innerHTML = SOC.icon('search', 16);
+
+  const ACTION = {
+    APPROVE_REMEDIATION: { label: 'Remediation plan approved', icon: 'check', c: '#34d399', g: 'APPROVE' },
+    REJECT_REMEDIATION: { label: 'Remediation plan rejected', icon: 'x', c: '#fb7185', g: 'REJECT' },
+    EXECUTE_REMEDIATION_SIMULATED: { label: 'Recovery executed (simulated)', icon: 'play', c: '#22d3ee', g: 'EXECUTE' },
+    LOGIN: { label: 'Signed in', icon: 'user', c: '#8c97b3', g: 'ACCESS' },
+    LOGIN_FAILED: { label: 'Failed sign-in attempt', icon: 'x', c: '#fb7185', g: 'ACCESS' },
+    CREATE_USER: { label: 'User account created', icon: 'user', c: '#a78bfa', g: 'ACCESS' },
+    SIMULATE_ATTACK: { label: 'Attack simulated', icon: 'play', c: '#fbbf24', g: 'OTHER' },
+    REINVESTIGATE: { label: 'AI re-analysis requested', icon: 'refresh', c: '#a78bfa', g: 'OTHER' },
+    EXPORT_REPORT_PDF: { label: 'PDF report exported', icon: 'download', c: '#8c97b3', g: 'OTHER' },
+    RAG_REINDEX: { label: 'AI memory re-indexed', icon: 'layers', c: '#22d3ee', g: 'OTHER' },
+    AI_INVESTIGATION_FAILED: { label: 'AI investigation failed', icon: 'alert', c: '#fb7185', g: 'OTHER' }
+  };
+  const meta = (a) => ACTION[a] || { label: String(a || 'Event').toLowerCase().replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()), icon: 'file', c: '#8c97b3', g: 'OTHER' };
+
+  function filtered() {
+    const q = state.q.trim().toLowerCase();
+    return state.rows.filter((r) => (!state.g || meta(r.action).g === state.g) && (!state.user || String(r.userId) === state.user) &&
+      (!q || [r.username, r.action, meta(r.action).label, r.details, r.targetType, '#' + r.targetId].join(' ').toLowerCase().includes(q)));
+  }
+
+  function dayLabel(iso) {
+    const d = SOC.parseTime(iso);
+    if (!d) return 'Unknown date';
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const that = new Date(d); that.setHours(0, 0, 0, 0);
+    const diff = Math.round((today - that) / 86400000);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Yesterday';
+    return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  }
+
+  function renderStats() {
+    const n = (g) => state.rows.filter((r) => meta(r.action).g === g).length;
+    const people = new Set(state.rows.map((r) => r.username).filter(Boolean)).size;
+    const defs = [
+      ['Total entries', state.rows.length, 'file', '#22d3ee', people + ' people involved'],
+      ['Plans approved', n('APPROVE'), 'check', '#34d399', 'human sign-offs'],
+      ['Plans rejected', n('REJECT'), 'x', '#fb7185', 'sent back to the AI'],
+      ['Recoveries run', n('EXECUTE'), 'play', '#a78bfa', 'simulated remediations']
+    ];
+    $('aStats').innerHTML = defs.map(([label, val, icon, c, foot], i) => `
+      <div class="card stat reveal" style="--d:${0.05 * i + 0.05}s;--c:${c};--glow:${c}33">
+        <div class="s-top"><span class="s-label">${label}</span><span class="s-ic">${SOC.icon(icon, 19)}</span></div>
+        <div class="s-num"><span data-n="${val}">0</span></div><div class="s-foot">${foot}</div></div>`).join('');
+    $('aStats').querySelectorAll('[data-n]').forEach((el) => SOC.countUp(el, Number(el.dataset.n)));
+  }
+
+  function render() {
+    const l = filtered();
+    $('count').textContent = l.length + ' of ' + state.rows.length + ' entries';
+    const key = JSON.stringify(l) + '|' + Math.floor(Date.now() / 10000);
+    if (key === state.lastKey) return;
+    state.lastKey = key;
+    if (!l.length) {
+      $('list').innerHTML = `<div class="empty">${SOC.icon('file', 34)}<b>${state.rows.length ? 'No entries match these filters' : 'The audit log is empty'}</b>${state.rows.length ? 'Try clearing the search or the filters.' : 'Approve or reject a remediation plan on the Investigations page and it appears here.'}</div>`;
+      return;
+    }
+    let html = '', last = '';
+    l.forEach((r) => {
+      const day = dayLabel(r.createdAt);
+      if (day !== last) { html += `<div class="day-label">${SOC.esc(day)}</div>`; last = day; }
+      const m = meta(r.action), inc = r.targetType === 'incident' ? [0, r.targetId] : /incident\s+#?(\d+)/i.exec(r.details || ''), t = SOC.parseTime(r.createdAt);
+      html += `<div class="a-item ${state.fresh.has(r.logId) ? 'fresh' : ''}" style="--c:${m.c}">
+        <div class="a-ic">${SOC.icon(m.icon, 21)}</div>
+        <div class="a-main"><b>${SOC.esc(m.label)}</b><p>${SOC.esc(r.details || '—')}</p>
+          <div class="a-meta">
+            <span class="a-user"><span class="avatar" style="background:${SOC.avatarColor(r.username)}">${SOC.esc(SOC.initials(r.username))}</span>${SOC.esc(r.username || (r.userId != null ? 'user #' + r.userId : 'system'))}</span>
+            ${r.targetId != null ? `<span class="chip">${SOC.esc(r.targetType || 'item')} #${SOC.esc(r.targetId)}</span>` : ''}
+            ${inc ? `<a class="a-link" href="incidents.html?id=${inc[1]}">Open incident #${inc[1]} →</a>` : ''}
+          </div></div>
+        <div class="a-time">${t ? t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}<small>${SOC.timeAgo(r.createdAt)}</small></div>
+      </div>`;
+    });
+    $('list').innerHTML = '<div class="a-list">' + html + '</div>';
+    state.fresh.clear();
+  }
+
+  function renderUsers() {
+    const names = [...new Map(state.rows.filter((r) => r.userId != null).map((r) => [String(r.userId), r.username || 'user #' + r.userId])).entries()];
+    const cur = $('userSel').value;
+    $('userSel').innerHTML = '<option value="">Everyone</option>' + names.map(([id, n]) => `<option value="${id}">${SOC.esc(n)}</option>`).join('');
+    $('userSel').value = names.some(([id]) => id === cur) ? cur : '';
+  }
+
+  // ----- filters -----
+  let qTimer;
+  $('q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = $('q').value; state.lastKey = ''; render(); }, 120); });
+  $('actGroup').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    state.g = b.dataset.g; state.lastKey = '';
+    $('actGroup').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+    render();
+  });
+  $('userSel').addEventListener('change', () => { state.user = $('userSel').value; state.lastKey = ''; render(); });
+
+  // ----- CSV export of whatever is currently shown -----
+  $('exportBtn').addEventListener('click', () => {
+    const l = filtered();
+    if (!l.length) return SOC.toast('Nothing to export', 'No entries match the current filters.', 'error');
+    const cell = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const csv = ['log_id,time,user,action,target_type,target_id,details']
+      .concat(l.map((r) => [r.logId, r.createdAt, r.username, r.action, r.targetType, r.targetId, r.details].map(cell).join(','))).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'socgpt-audit-log.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    SOC.toast('Exported', l.length + ' audit entries saved as CSV.', 'success');
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { e.preventDefault(); $('q').focus(); }
+    if (e.key === 'Escape') $('q').blur();
+  });
+
+  async function load() {
+    const rows = await SOC.api('/api/audit');
+    const maxNow = rows.reduce((m, r) => Math.max(m, r.logId), 0);
+    if (state.maxId !== null && maxNow > state.maxId) rows.filter((r) => r.logId > state.maxId).forEach((r) => state.fresh.add(r.logId));
+    state.maxId = maxNow;
+    const changed = JSON.stringify(rows.map((r) => r.logId)) !== JSON.stringify(state.rows.map((r) => r.logId));
+    state.rows = rows;
+    if (changed || !$('aStats').children.length) { renderStats(); renderUsers(); state.lastKey = ''; }
+    render();
+  }
+  SOC.poll(load, 4000);
+})();
+</script>
+</body>
+</html>

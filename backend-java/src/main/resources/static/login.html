@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SOCGPT · Sign in</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/v2.css">
+  <link rel="stylesheet" href="css/v3.css">
+  <link rel="stylesheet" href="css/login.css">
+</head>
+<body class="login-body">
+<div class="lg">
+  <!-- ============ left: brand + radar ============ -->
+  <aside class="lg-hero">
+    <div class="lg-brand">
+      <div class="brand-logo" id="logo"></div>
+      <div><div class="brand-name">SOCGPT</div><div class="brand-sub">AI Security Operations</div></div>
+    </div>
+
+    <div class="lg-mid">
+      <h2>Detect. Investigate.<br><span>Approve.</span></h2>
+      <p>Simulated attacks are detected in real time, mapped to MITRE ATT&amp;CK, investigated by an AI analyst, and fixed only after a human signs off.</p>
+
+      <ul class="lg-points">
+        <li><span id="i1"></span><div><b>Real-time detection</b><small>Rules, risk scoring and multi-stage attack chains</small></div></li>
+        <li><span id="i2"></span><div><b>AI investigation with memory</b><small>Reports and 5-stage plans that learn from past incidents</small></div></li>
+        <li><span id="i3"></span><div><b>Human in control</b><small>Role-based approval, four-eyes rule, full audit trail</small></div></li>
+      </ul>
+    </div>
+
+    <svg class="radar" viewBox="0 0 400 400" aria-hidden="true">
+      <defs>
+        <radialGradient id="rg" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#22d3ee" stop-opacity=".18"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></radialGradient>
+        <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#22d3ee" stop-opacity="0"/><stop offset="1" stop-color="#22d3ee" stop-opacity=".55"/></linearGradient>
+      </defs>
+      <circle cx="200" cy="200" r="190" fill="url(#rg)"/>
+      <g fill="none" stroke="rgba(160,200,255,.22)" stroke-width="1">
+        <circle cx="200" cy="200" r="190"/><circle cx="200" cy="200" r="140"/><circle cx="200" cy="200" r="90"/><circle cx="200" cy="200" r="40"/>
+        <line x1="10" y1="200" x2="390" y2="200"/><line x1="200" y1="10" x2="200" y2="390"/>
+        <line x1="66" y1="66" x2="334" y2="334"/><line x1="334" y1="66" x2="66" y2="334"/>
+      </g>
+      <g class="sweep"><path d="M200 200 L390 200 A190 190 0 0 0 355 90 Z" fill="url(#sweep)"/><line x1="200" y1="200" x2="390" y2="200" stroke="#22d3ee" stroke-width="1.5"/></g>
+      <g class="blips">
+        <circle class="b b1" cx="300" cy="120" r="5"/><circle class="b b2" cx="120" cy="140" r="5"/>
+        <circle class="b b3" cx="270" cy="290" r="5"/><circle class="b b4" cx="150" cy="300" r="5"/>
+      </g>
+      <circle cx="200" cy="200" r="5" fill="#22d3ee"/>
+    </svg>
+
+    <div class="lg-foot"><span>MITRE ATT&amp;CK</span><span>NIST CSF 2.0</span><span>Gemini · LangGraph</span></div>
+  </aside>
+
+  <!-- ============ right: form ============ -->
+  <main class="lg-panel">
+    <section class="lg-card" id="card">
+      <div class="lg-secure"><span id="lockIc"></span> Secure sign-in</div>
+      <h1>Welcome back</h1>
+      <p class="lg-sub">Sign in to the security console. Every decision you make is recorded under your name.</p>
+
+      <form id="form" autocomplete="on" novalidate>
+        <div class="fld">
+          <label for="username">Username</label>
+          <div class="inp"><span id="uIc"></span><input type="text" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus placeholder="e.g. analyst1"></div>
+        </div>
+        <div class="fld">
+          <label for="password">Password</label>
+          <div class="inp"><span id="pIc"></span><input type="password" id="password" name="password" autocomplete="current-password" placeholder="Your password">
+            <button type="button" class="icon-btn" id="peek" aria-label="Show password"></button></div>
+          <div class="caps" id="caps" hidden>Caps Lock is on</div>
+        </div>
+        <label class="remember"><input type="checkbox" id="remember"> <span>Remember my username on this computer</span></label>
+        <div class="login-error" id="error" role="alert" hidden></div>
+        <button class="btn primary block" id="submit" type="submit">Sign in</button>
+      </form>
+
+      <div class="demo">
+        <div class="demo-title"><span>Demo accounts</span><em>click to fill</em></div>
+        <div class="demo-list" id="demo"></div>
+      </div>
+      <p class="lg-note">Development build: the demo passwords and token secret should be changed before this is shared.</p>
+    </section>
+  </main>
+</div>
+
+<script>window.SOC_PUBLIC = true;</script>
+<script src="js/common.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  $('logo').innerHTML = SOC.icon('shield', 24);
+  $('i1').innerHTML = SOC.icon('radar', 20); $('i2').innerHTML = SOC.icon('sparkle', 20); $('i3').innerHTML = SOC.icon('check', 20);
+  $('lockIc').innerHTML = SOC.icon('lock', 14);
+  $('uIc').innerHTML = SOC.icon('user', 17); $('pIc').innerHTML = SOC.icon('key', 17);
+  $('peek').innerHTML = SOC.icon('eye', 17);
+
+  const DEMO = [
+    { u: 'admin', p: 'Admin@123', role: 'Admin', note: 'Everything, plus users and AI memory', c: 'r-admin' },
+    { u: 'manager1', p: 'Manager@123', role: 'SOC manager', note: 'Decides critical incidents, runs recovery', c: 'r-soc_manager' },
+    { u: 'analyst1', p: 'Analyst@123', role: 'Analyst', note: 'Decides non-critical incidents', c: 'r-analyst' }
+  ];
+  $('demo').innerHTML = DEMO.map((d, i) => `<button type="button" class="demo-chip" data-i="${i}">
+      <span class="avatar" style="background:${SOC.avatarColor(d.u)}">${SOC.initials(d.u)}</span>
+      <span class="dc-txt"><b>${d.u}</b><small>${d.note}</small></span><span class="role-pill ${d.c}">${d.role}</span></button>`).join('');
+  $('demo').addEventListener('click', (e) => {
+    const b = e.target.closest('.demo-chip');
+    if (!b) return;
+    const d = DEMO[+b.dataset.i];
+    $('username').value = d.u; $('password').value = d.p;
+    $('error').hidden = true;
+    $('submit').focus();
+  });
+
+  // remembered username
+  try { const u = localStorage.getItem('socgpt.lastUser'); if (u) { $('username').value = u; $('remember').checked = true; $('password').focus(); } } catch (e) { /* ignore */ }
+
+  $('peek').addEventListener('click', () => {
+    const show = $('password').type === 'password';
+    $('password').type = show ? 'text' : 'password';
+    $('peek').setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  });
+  const caps = (e) => { if (e.getModifierState) $('caps').hidden = !e.getModifierState('CapsLock'); };
+  $('password').addEventListener('keydown', caps); $('password').addEventListener('keyup', caps);
+  $('password').addEventListener('blur', () => { $('caps').hidden = true; });
+
+  // only ever return to one of our own pages
+  function nextPage() {
+    const n = new URLSearchParams(location.search).get('next') || '';
+    return /^[a-z]+\.html(\?[A-Za-z0-9_=&%.\-]*)?$/.test(n) && !n.startsWith('login') ? n : 'index.html';
+  }
+
+  if (SOC.token()) SOC.api('/api/auth/me').then(() => location.replace(nextPage())).catch(() => SOC.clearSession());
+
+  function fail(msg) {
+    const err = $('error');
+    err.textContent = msg; err.hidden = false;
+    const card = $('card'); card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+  }
+
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = $('username').value.trim(), password = $('password').value;
+    $('error').hidden = true;
+    if (!username || !password) return fail('Enter your username and password.');
+    const btn = $('submit');
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Signing in…';
+    try {
+      const r = await SOC.api('/api/auth/login', { json: { username, password } });
+      try { if ($('remember').checked) localStorage.setItem('socgpt.lastUser', username); else localStorage.removeItem('socgpt.lastUser'); } catch (x) { /* ignore */ }
+      SOC.setSession(r.token, r.user);
+      btn.innerHTML = SOC.icon('check', 16) + ' Signed in';
+      location.replace(nextPage());
+    } catch (ex) {
+      fail(ex.message);
+      $('password').select();
+      btn.disabled = false; btn.textContent = 'Sign in';
+    }
+  });
+})();
+</script>
+</body>
+</html>

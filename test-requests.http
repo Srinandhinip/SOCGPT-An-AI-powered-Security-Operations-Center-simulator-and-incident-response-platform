@@ -1,0 +1,86 @@
+### SOCGPT API samples (VS Code "REST Client" extension). Run "Sign in" first.
+
+# @name login
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{ "username": "manager1", "password": "Manager@123" }
+
+### Who am I
+GET http://localhost:8080/api/auth/me
+Authorization: Bearer {{login.response.body.token}}
+
+### Send a raw event as a sensor (no sign-in, uses the ingest key)
+POST http://localhost:8080/events
+Content-Type: application/json
+X-Ingest-Key: dev-ingest-key
+
+{ "sourceIp": "10.0.0.99", "eventType": "sqli", "mitreId": "T1190" }
+
+### Incidents list
+GET http://localhost:8080/api/incidents
+Authorization: Bearer {{login.response.body.token}}
+
+### One incident (report, plan, risk factors, chain, similar incidents, permissions)
+GET http://localhost:8080/api/incidents/1
+Authorization: Bearer {{login.response.body.token}}
+
+### Attack chains
+GET http://localhost:8080/api/chains
+Authorization: Bearer {{login.response.body.token}}
+
+### Dashboard numbers
+GET http://localhost:8080/api/stats
+Authorization: Bearer {{login.response.body.token}}
+
+### Approve a plan (analysts: non-critical only; critical needs a SOC manager)
+POST http://localhost:8080/remediation-plans/1/approve
+Authorization: Bearer {{login.response.body.token}}
+
+### Reject a plan with a reason
+POST http://localhost:8080/remediation-plans/2/reject?reason=Too%20disruptive
+Authorization: Bearer {{login.response.body.token}}
+
+### Run the simulated recovery (SOC manager or admin, only after approval)
+POST http://localhost:8080/remediation-plans/1/execute
+Authorization: Bearer {{login.response.body.token}}
+
+### Re-run the AI on an OPEN incident
+POST http://localhost:8080/api/incidents/2/reinvestigate
+Authorization: Bearer {{login.response.body.token}}
+
+### Launch a simulated attack (optionally from a fixed IP)
+POST http://localhost:8080/api/simulate?type=port_scan&ip=203.0.113.50
+Authorization: Bearer {{login.response.body.token}}
+
+### PDF report
+GET http://localhost:8080/api/incidents/1/report.pdf
+Authorization: Bearer {{login.response.body.token}}
+
+### Create a user (admin only)
+POST http://localhost:8080/users
+Authorization: Bearer {{login.response.body.token}}
+Content-Type: application/json
+
+{ "username": "analyst2", "email": "analyst2@socgpt.com", "password": "Analyst@456", "role": "analyst" }
+
+### Re-index the AI's memory of past incidents (admin only)
+POST http://localhost:8080/api/rag/reindex
+Authorization: Bearer {{login.response.body.token}}
+
+### Talk to the Python agent directly
+POST http://localhost:8000/investigate
+Content-Type: application/json
+
+{
+  "incidentId": 99, "severity": "CRITICAL", "riskScore": 90,
+  "eventType": "sqli", "sourceIp": "10.0.0.99", "mitreId": "T1190",
+  "techniqueName": "Exploit Public-Facing Application", "tactic": "Initial Access",
+  "csfFunction": "Protect", "csfDescription": "Safeguards limit the impact."
+}
+
+### Embedding endpoint
+POST http://localhost:8000/embed
+Content-Type: application/json
+
+{ "text": "Attack: sqli. Tactic: Initial Access.", "kind": "query" }

@@ -1,0 +1,1 @@
+# The SOCGPT web frontend is served as static assets by Spring Boot under backend-java/src/main/resources/static

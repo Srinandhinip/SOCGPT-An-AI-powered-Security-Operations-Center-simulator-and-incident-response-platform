@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SOCGPT · Command Center</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/v2.css">
+  <link rel="stylesheet" href="css/v3.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <header class="page-head reveal">
+      <div>
+        <h1 class="grad-text">Command Center</h1>
+        <p class="sub">Live view of detections, AI investigations and the decisions waiting for a human.</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" id="refreshBtn" title="Refresh now"></button>
+        <a class="btn primary" href="incidents.html" id="reviewBtn"></a>
+      </div>
+    </header>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="ops">
+      <div class="card reveal" style="--d:.2s">
+        <h3 id="gaugeHead"></h3>
+        <div class="gauge-wrap" id="gauge"></div>
+      </div>
+      <div class="card reveal" style="--d:.24s">
+        <h3 id="streamHead"></h3>
+        <div class="stream" id="stream"></div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card reveal" style="--d:.28s">
+        <h3 id="tlHead"></h3>
+        <div class="chart-wrap" id="timeline"></div>
+      </div>
+      <div class="card reveal" style="--d:.34s">
+        <h3 id="sevHead"></h3>
+        <div id="donut"></div>
+      </div>
+    </section>
+
+    <section class="grid-2 even">
+      <div class="card reveal" style="--d:.40s">
+        <h3 id="tacHead"></h3>
+        <div id="tactics"></div>
+      </div>
+      <div class="card reveal" style="--d:.46s">
+        <h3 id="csfHead"></h3>
+        <div class="csf-grid" id="csf"></div>
+      </div>
+    </section>
+
+    <section class="grid-2 even">
+      <div class="card reveal" style="--d:.5s">
+        <h3 id="perfHead"></h3>
+        <div class="perf-grid" id="perf"></div>
+      </div>
+      <div class="card reveal" style="--d:.55s">
+        <h3 id="ipHead"></h3>
+        <div id="topIps"></div>
+      </div>
+    </section>
+
+    <section class="card reveal" style="--d:.58s;margin-top:20px">
+      <h3 id="chainHead"></h3>
+      <div id="chains"></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card reveal" style="--d:.52s">
+        <h3 id="feedHead"></h3>
+        <div class="feed" id="feed"></div>
+      </div>
+      <div class="card reveal" style="--d:.58s">
+        <h3 id="labHead"></h3>
+        <div class="lab" id="lab"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="js/common.js"></script>
+<script>
+(function () {
+  'use strict';
+  SOC.mountSidebar('dash');
+  const $ = (id) => document.getElementById(id);
+  const state = { first: true, maxId: null, last: {}, fresh: new Set() };
+
+  // ---------- static headings with icons ----------
+  $('refreshBtn').innerHTML = SOC.icon('refresh', 16) + ' Refresh';
+  $('reviewBtn').innerHTML = SOC.icon('eye', 16) + ' Review incidents';
+  $('tlHead').innerHTML = SOC.icon('clock') + 'Incidents over time<span class="right">last 12 hours</span>';
+  $('sevHead').innerHTML = SOC.icon('alert') + 'By severity';
+  $('tacHead').innerHTML = SOC.icon('target') + 'MITRE ATT&amp;CK tactics<span class="right">click to filter</span>';
+  $('csfHead').innerHTML = SOC.icon('layers') + 'NIST CSF 2.0 functions';
+  $('feedHead').innerHTML = SOC.icon('bolt') + 'Live incident feed<span class="right">newest first</span>';
+  $('labHead').innerHTML = SOC.icon('play') + 'Attack lab<span class="right">safe, simulated traffic</span>';
+  $('perfHead').innerHTML = SOC.icon('chart') + 'Response performance<span class="right">how well the SOC is doing</span>';
+  $('ipHead').innerHTML = SOC.icon('radar') + 'Top attacking IPs<span class="right">by incidents raised</span>';
+  $('chainHead').innerHTML = SOC.icon('link') + 'Multi-stage attack chains<span class="right">one IP, several attack stages</span>';
+  if ((SOC.me() || {}).role === 'admin') {
+    const b = document.createElement('button');
+    b.className = 'btn'; b.title = 'Embed every investigated incident so the AI can learn from past cases';
+    b.innerHTML = SOC.icon('layers', 16) + ' Re-index AI memory';
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        const r = await SOC.api('/api/rag/reindex', { method: 'POST' });
+        SOC.toast('AI memory re-indexed', r.indexed + ' incident(s) indexed' + (r.failed ? ', ' + r.failed + ' failed (' + (r.lastError || 'see backend log') + ')' : '') + '.', r.failed ? 'error' : 'success', 6000);
+      } catch (e) { SOC.toast('Re-index failed', e.message, 'error', 6000); } finally { b.disabled = false; }
+    });
+    document.querySelector('.head-actions').prepend(b);
+  }
+
+  // ---------- stat cards ----------
+  const STATS = [
+    { id: 'total', label: 'Total incidents', icon: 'shield', c: '#22d3ee', glow: 'rgba(34,211,238,.22)' },
+    { id: 'wait', label: 'Awaiting approval', icon: 'clock', c: '#fbbf24', glow: 'rgba(251,191,36,.24)', href: 'incidents.html?status=AWAITING_APPROVAL' },
+    { id: 'crit', label: 'Critical incidents', icon: 'alert', c: '#ff3b5c', glow: 'rgba(255,59,92,.24)', href: 'incidents.html?sev=CRITICAL' },
+    { id: 'risk', label: 'Average risk score', icon: 'bolt', c: '#a78bfa', glow: 'rgba(139,92,246,.26)', unit: '/100' },
+    { id: 'mttr', label: 'Avg approval time', icon: 'target', c: '#34d399', glow: 'rgba(52,211,153,.22)', text: true }
+  ];
+  $('stats').innerHTML = STATS.map((s, i) => `
+    <div class="card stat reveal ${s.href ? 'link' : ''}" id="card-${s.id}" style="--d:${0.06 * i + 0.05}s;--c:${s.c};--glow:${s.glow}" ${s.href ? `data-href="${s.href}"` : ''}>
+      <div class="s-top"><span class="s-label">${s.label}</span><span class="s-ic">${SOC.icon(s.icon, 19)}</span></div>
+      <div class="s-num"><span id="n-${s.id}">0</span>${s.unit ? `<small>${s.unit}</small>` : ''}</div>
+      <div class="s-foot" id="f-${s.id}">&nbsp;</div>
+    </div>`).join('');
+  $('stats').addEventListener('click', (e) => { const c = e.target.closest('[data-href]'); if (c) location.href = c.dataset.href; });
+
+  function updateStats(s) {
+    SOC.countUp($('n-total'), s.totalIncidents);
+    $('f-total').textContent = s.totalEvents + ' raw events ingested';
+    SOC.countUp($('n-wait'), s.awaitingApproval);
+    $('f-wait').textContent = s.awaitingApproval ? 'click to review the queue' : 'the queue is clear';
+    $('card-wait').classList.toggle('attention', s.awaitingApproval > 0);
+    SOC.countUp($('n-crit'), s.criticalCount);
+    $('f-crit').textContent = s.totalIncidents ? Math.round((100 * s.criticalCount) / s.totalIncidents) + '% of all incidents' : 'no incidents yet';
+    SOC.countUp($('n-risk'), s.avgRisk);
+    $('f-risk').textContent = 'across all detections';
+    $('n-mttr').textContent = SOC.fmtDuration(s.avgTimeToApproveSeconds);
+    $('f-mttr').textContent = s.avgTimeToApproveSeconds == null ? 'no approvals yet' : 'detection → analyst approval';
+  }
+
+  $('gaugeHead').innerHTML = SOC.icon('target') + 'Threat level<span class="right">live, from open work</span>';
+  $('streamHead').innerHTML = SOC.icon('bolt') + 'Live sensor stream<span class="right">raw events as they arrive</span>';
+
+  // ---------- sparkline inside the first KPI tile ----------
+  function renderSpark(hourly) {
+    const key = JSON.stringify(hourly.map((h) => h.count));
+    if (state.last.spark === key) return;
+    state.last.spark = key;
+    const W = 92, H = 34, max = Math.max(1, ...hourly.map((h) => h.count));
+    const pts = hourly.map((h, i) => [(i / (hourly.length - 1)) * W, H - 3 - (h.count / max) * (H - 8)]);
+    const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const host = $('card-total');
+    let el = host.querySelector('.spark');
+    if (!el) { el = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); el.setAttribute('class', 'spark'); el.setAttribute('viewBox', `0 0 ${W} ${H}`); host.appendChild(el); }
+    el.innerHTML = `<defs><linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2ee6d6"/><stop offset="1" stop-color="transparent"/></linearGradient></defs>
+      <path class="area" d="${line} L${W} ${H} L0 ${H} Z"/><path class="line" d="${line}"/>`;
+  }
+
+  // ---------- threat gauge ----------
+  function renderGauge(s) {
+    const t = SOC.threat(s), key = JSON.stringify([t.score, t.name]);
+    if (state.last.gauge === key) return;
+    const first = !state.last.gauge;
+    state.last.gauge = key;
+    const R = 120, C = Math.PI * R, ang = -90 + 1.8 * t.score;     // -90deg .. +90deg
+    if (first) {
+      let ticks = '';
+      for (let i = 0; i <= 10; i++) { const a = (-180 + i * 18) * Math.PI / 180; ticks += `<line class="tick" x1="${150 + 134 * Math.cos(a)}" y1="${150 + 134 * Math.sin(a)}" x2="${150 + 142 * Math.cos(a)}" y2="${150 + 142 * Math.sin(a)}"/>`; }
+      $('gauge').innerHTML = `<svg class="gauge" viewBox="0 0 300 175" id="gaugeSvg">
+        <path class="track" d="M30 150 A120 120 0 0 1 270 150"/>
+        <path class="val" id="gVal" d="M30 150 A120 120 0 0 1 270 150" stroke-dasharray="${C}" stroke-dashoffset="${C}"/>${ticks}
+        <g class="needle" id="gNeedle" style="transform:rotate(-90deg)"><path d="M150 150 L150 48" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="150" cy="150" r="8" fill="#0b1426" stroke="#fff" stroke-width="3"/></g></svg>
+        <div class="gauge-level" id="gLevel"></div><div class="gauge-sub" id="gSub"></div><div class="gauge-legend" id="gLegend"></div>`;
+    }
+    const val = $('gVal');
+    val.style.setProperty('--tc', t.c); val.style.stroke = t.c;
+    requestAnimationFrame(() => requestAnimationFrame(() => { val.style.strokeDashoffset = C * (1 - t.score / 100); $('gNeedle').style.transform = `rotate(${ang}deg)`; }));
+    $('gLevel').textContent = t.name; $('gLevel').style.setProperty('--tc', t.c);
+    $('gSub').textContent = `Score ${t.score}/100 · ${s.awaitingApproval || 0} plan(s) awaiting a decision, ${s.openIncidents || 0} open, ${s.activeChains || 0} active chain(s)`;
+    $('gLegend').innerHTML = SOC.THREAT_LEVELS.map((l) => `<span style="--c:${l.c}" class="${l.name === t.name ? 'on' : ''}">${l.name}</span>`).join('');
+  }
+
+  // ---------- live sensor stream ----------
+  const EV_COLOR = { sqli: '#ff3b5c', malware: '#ff8a3d', brute_force: '#f5c542', port_scan: '#2ee6d6' };
+  function renderStream(events) {
+    const ids = events.map((e) => e.eventId), key = ids.join(',');
+    if (state.last.stream === key) return;
+    const prev = new Set(state.last.streamIds || []), fresh = state.last.stream !== undefined;
+    state.last.stream = key; state.last.streamIds = ids;
+    if (!events.length) { $('stream').innerHTML = '<div class="stream-head"><span>waiting for sensor events…</span></div>'; return; }
+    $('stream').innerHTML = '<div class="stream-head"><span>time (local)</span><span>source · event · technique · tactic</span></div>' + events.map((e) => {
+      const t = SOC.parseTime(e.detectedAt);
+      return `<div class="s-line ${fresh && !prev.has(e.eventId) ? 'new' : ''}" style="--c:${EV_COLOR[e.eventType] || '#8a99b8'}">
+        <span class="t">${t ? t.toLocaleTimeString([], { hour12: false }) : '--:--:--'}</span><span class="ip">${SOC.esc(e.sourceIp)}</span>
+        <span class="tag">${SOC.esc(String(e.eventType).toUpperCase())}</span><span class="m">${SOC.esc(e.mitreId || '')}</span><span class="tac">${SOC.esc(e.tactic || '')}</span></div>`;
+    }).join('');
+  }
+
+  // ---------- timeline (bar chart) ----------
+  function renderTimeline(hourly) {
+    const key = JSON.stringify(hourly);
+    if (state.last.tl === key) return;
+    state.last.tl = key;
+    const W = 640, H = 236, L = 34, R = 8, T = 20, B = 32;
+    const max = Math.max(4, ...hourly.map((h) => h.count));
+    const top = max % 2 ? max + 1 : max;
+    const iw = W - L - R, ih = H - T - B, slot = iw / hourly.length, bw = slot * 0.6;
+    let svg = `<svg viewBox="0 0 ${W} ${H}" class="${state.first ? 'anim' : ''}" role="img" aria-label="Incidents per hour">
+      <defs><linearGradient id="barG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#6366f1"/></linearGradient></defs>`;
+    [0, 0.5, 1].forEach((f) => {
+      const y = T + ih * (1 - f);
+      svg += `<line class="grid-l" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="axis-t" x="${L - 8}" y="${y + 4}" text-anchor="end">${Math.round(top * f)}</text>`;
+    });
+    hourly.forEach((h, i) => {
+      const bh = Math.max(h.count ? 5 : 3, (h.count / top) * ih);
+      const x = L + i * slot + (slot - bw) / 2, y = T + ih - bh;
+      svg += `<g class="bar-hit" data-i="${i}">
+        <rect x="${L + i * slot}" y="${T}" width="${slot}" height="${ih}" fill="transparent"/>
+        <rect class="bar" style="--i:${i}" x="${x}" y="${y}" width="${bw}" height="${bh}" rx="6" fill="${h.count ? 'url(#barG)' : 'rgba(255,255,255,.08)'}"/>
+        ${h.count ? `<text class="val-t" x="${x + bw / 2}" y="${y - 7}" text-anchor="middle">${h.count}</text>` : ''}
+      </g>`;
+      if (i % 2 === 0 || i === hourly.length - 1) svg += `<text class="axis-t" x="${x + bw / 2}" y="${H - 9}" text-anchor="middle">${h.hour}</text>`;
+    });
+    $('timeline').innerHTML = svg + '</svg>';
+  }
+  $('timeline').addEventListener('mousemove', (e) => {
+    const g = e.target.closest('.bar-hit');
+    if (!g) return SOC.tipHide();
+    const h = JSON.parse(state.last.tl)[+g.dataset.i];
+    SOC.tip(`<b>${h.hour}</b><br>${h.count} incident${h.count === 1 ? '' : 's'}`, e);
+  });
+  $('timeline').addEventListener('mouseleave', SOC.tipHide);
+
+  // ---------- severity donut ----------
+  const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+  function renderDonut(by) {
+    const key = JSON.stringify(by);
+    if (state.last.donut === key) return;
+    state.last.donut = key;
+    const total = SEVS.reduce((a, s) => a + (by[s] || 0), 0);
+    const R = 70, C = 2 * Math.PI * R;
+    let off = 0, segs = '';
+    SEVS.forEach((s) => {
+      const v = by[s] || 0;
+      if (!v) return;
+      const len = (v / total) * C, gap = v === total ? 0 : 3, col = SOC.sevColor(s);
+      segs += `<circle class="seg" data-sev="${s}" cx="100" cy="100" r="${R}" stroke="${col}" style="color:${col}" stroke-dasharray="${Math.max(0, len - gap)} ${C}" stroke-dashoffset="${-off}"/>`;
+      off += len;
+    });
+    $('donut').innerHTML = `<div class="donut-wrap">
+      <div class="donut" id="donutEl">
+        <svg viewBox="0 0 200 200"><circle cx="100" cy="100" r="${R}" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="22"/>${segs}</svg>
+        <div class="center"><div><b>${total}</b><span>incidents</span></div></div>
+      </div>
+      <div class="legend" id="legend">${SEVS.map((s) => {
+        const v = by[s] || 0;
+        return `<a href="incidents.html?sev=${s}" data-sev="${s}"><i style="background:${SOC.sevColor(s)}"></i><span>${s[0] + s.slice(1).toLowerCase()}</span><b>${v}</b><em>${total ? Math.round((100 * v) / total) : 0}%</em></a>`;
+      }).join('')}</div></div>`;
+    const donut = $('donutEl'), seg = (s) => donut.querySelector(`.seg[data-sev="${s}"]`);
+    $('legend').addEventListener('mouseover', (e) => { const a = e.target.closest('[data-sev]'); if (a && seg(a.dataset.sev)) { donut.classList.add('dim'); seg(a.dataset.sev).classList.add('hl'); } });
+    $('legend').addEventListener('mouseout', () => { donut.classList.remove('dim'); donut.querySelectorAll('.hl').forEach((x) => x.classList.remove('hl')); });
+    donut.addEventListener('click', (e) => { const c = e.target.closest('.seg'); if (c) location.href = 'incidents.html?sev=' + c.dataset.sev; });
+    donut.addEventListener('mousemove', (e) => { const c = e.target.closest('.seg'); if (c) SOC.tip(`<b>${c.dataset.sev}</b><br>${by[c.dataset.sev]} incident(s)`, e); else SOC.tipHide(); });
+    donut.addEventListener('mouseleave', SOC.tipHide);
+  }
+
+  // ---------- MITRE tactics ----------
+  function renderTactics(by) {
+    const key = JSON.stringify(by);
+    if (state.last.tac === key) return;
+    state.last.tac = key;
+    const rows = Object.entries(by);
+    if (!rows.length) { $('tactics').innerHTML = '<div class="empty" style="padding:30px">No mapped incidents yet</div>'; return; }
+    const max = Math.max(...rows.map((r) => r[1]));
+    $('tactics').innerHTML = rows.map(([name, n]) =>
+      `<a class="bar-row" href="incidents.html?q=${encodeURIComponent(name)}"><span>${SOC.esc(name)}</span><div class="track"><i data-w="${(100 * n) / max}" style="width:0"></i></div><b>${n}</b></a>`).join('');
+    requestAnimationFrame(() => requestAnimationFrame(() => $('tactics').querySelectorAll('i[data-w]').forEach((i) => { i.style.width = i.dataset.w + '%'; })));
+  }
+
+  // ---------- NIST CSF ----------
+  const CSF_ORDER = ['Govern', 'Identify', 'Protect', 'Detect', 'Respond', 'Recover'];
+  function renderCsf(by) {
+    const key = JSON.stringify(by);
+    if (state.last.csf === key) return;
+    state.last.csf = key;
+    $('csf').innerHTML = CSF_ORDER.map((f) => `<div class="csf ${by[f] > 0 ? 'on' : ''}" data-f="${f}"><b>${by[f] || 0}</b><span>${f}</span></div>`).join('');
+  }
+  $('csf').addEventListener('mousemove', (e) => { const c = e.target.closest('.csf'); if (c) SOC.tip(`<b>${c.dataset.f}</b><br>${SOC.CSF_INFO[c.dataset.f]}`, e); else SOC.tipHide(); });
+  $('csf').addEventListener('mouseleave', SOC.tipHide);
+
+  // ---------- response performance ----------
+  function renderPerf(s) {
+    const key = JSON.stringify([s.mttrSeconds, s.avgAiSeconds, s.approvalRatePct, s.alertsSent]);
+    if (state.last.perf === key) return;
+    state.last.perf = key;
+    const tiles = [
+      ['Mean time to recover', s.mttrSeconds == null ? '—' : SOC.fmtDuration(s.mttrSeconds), 'detection → recovery executed'],
+      ['AI analysis time', s.avgAiSeconds == null ? '—' : SOC.fmtDuration(s.avgAiSeconds), 'incident raised → report ready'],
+      ['Plan approval rate', s.approvalRatePct == null ? '—' : s.approvalRatePct + '%', 'approved ÷ decided plans'],
+      ['E-mail alerts sent', String(s.alertsSent || 0), 'action-required and chain alerts']
+    ];
+    $('perf').innerHTML = tiles.map(([l, v, f]) => `<div class="perf"><small>${l}</small><b>${v}</b><span>${f}</span></div>`).join('');
+  }
+
+  // ---------- top attacking IPs ----------
+  function renderTopIps(list) {
+    const key = JSON.stringify(list);
+    if (state.last.ips === key) return;
+    state.last.ips = key;
+    if (!list.length) { $('topIps').innerHTML = '<div class="empty" style="padding:30px">No attackers recorded yet</div>'; return; }
+    $('topIps').innerHTML = list.map((r) => `<a class="ip-row" href="incidents.html?q=${encodeURIComponent(r.ip)}" style="--c:${r.maxRisk >= 85 ? SOC.sevColor('CRITICAL') : r.maxRisk >= 65 ? SOC.sevColor('HIGH') : r.maxRisk >= 40 ? SOC.sevColor('MEDIUM') : SOC.sevColor('LOW')}">
+      <span class="mono">${SOC.esc(r.ip)}</span><span class="risk-mini" title="highest risk ${r.maxRisk}"><i style="width:${r.maxRisk}%"></i></span><span class="cnt">${r.count} incident${r.count === 1 ? '' : 's'}</span></a>`).join('');
+  }
+
+  // ---------- attack chains ----------
+  function renderChains(chains) {
+    const live = chains.filter((c) => c.status !== 'RESOLVED' || !/^Merged/.test(c.description || '')).slice(0, 6);
+    const key = JSON.stringify(live);
+    if (state.last.chains === key) return;
+    state.last.chains = key;
+    if (!live.length) {
+      $('chains').innerHTML = `<div class="empty" style="padding:30px">${SOC.icon('link', 30)}<b>No multi-stage attacks yet</b>Run the full campaign in the Attack lab: recon, brute force, then SQL injection from one IP.</div>`;
+      return;
+    }
+    $('chains').innerHTML = '<div class="chain-grid">' + live.map((c) => {
+      const last = (c.members || [])[c.members.length - 1];
+      return `<a class="chain-card" href="incidents.html?id=${last ? last.incidentId : ''}">
+        <div class="top"><span class="chain-badge" style="margin-left:0">${SOC.icon('link', 11)} Chain #${c.chainId}</span><span class="mono" style="font-size:12px">${SOC.esc(c.sourceIp)}</span><span class="chip">${SOC.esc(c.status.toLowerCase())}</span><b style="margin-left:auto">risk ${c.overallRisk}</b></div>
+        <b>${SOC.esc(c.description || '')}</b>
+        <small>${c.stages} stages · ${(c.members || []).length} incidents · updated ${SOC.timeAgo(c.updatedAt)}</small></a>`;
+    }).join('') + '</div>';
+  }
+
+  // ---------- live feed ----------
+  function renderFeed(list) {
+    const items = list.slice(0, 7);
+    const key = JSON.stringify(items) + ':' + Math.floor(Date.now() / 10000);
+    if (state.last.feed === key) return;
+    state.last.feed = key;
+    if (!items.length) {
+      $('feed').innerHTML = `<div class="empty">${SOC.icon('shield', 34)}<b>No incidents yet</b>Launch an attack from the Attack lab and watch it appear here.</div>`;
+      return;
+    }
+    $('feed').innerHTML = items.map((i) => {
+      const meta = SOC.eventMeta(i.eventType), c = SOC.sevColor(i.severity);
+      return `<a class="feed-item ${state.fresh.has(i.incidentId) ? 'fresh' : ''}" href="incidents.html?id=${i.incidentId}" style="--c:${c}">
+        <div class="f-ic">${SOC.icon(meta.icon, 20)}</div>
+        <div class="f-main">
+          <div class="f-title">#${i.incidentId} · ${SOC.esc(meta.label)}</div>
+          <div class="f-meta"><span class="mono">${SOC.esc(i.sourceIp || '—')}</span><span class="chip mitre">${SOC.esc(i.mitreId || '—')}</span><span>${SOC.timeAgo(i.createdAt)}</span></div>
+        </div>
+        <div class="f-right">${SOC.sevPill(i.severity)}${SOC.statusBadge(i.status)}</div>
+      </a>`;
+    }).join('');
+    state.fresh.clear();
+  }
+
+  // ---------- attack lab ----------
+  const LAB = [
+    { type: 'sqli', title: 'SQL injection', desc: 'Exploit the login form · T1190 · instantly critical', icon: 'database', c: '#ff3b5c' },
+    { type: 'malware', title: 'Malware execution', desc: 'Malicious attachment opened · T1204', icon: 'bug', c: '#ff8a3d' },
+    { type: 'brute_force', title: 'Brute-force burst', desc: '3 failed logins from one IP · T1110', icon: 'key', c: '#f5c542' },
+    { type: 'port_scan', title: 'Port-scan sweep', desc: '5 probes inside 2 minutes · T1595', icon: 'radar', c: '#22d3ee' }
+  ];
+  $('lab').innerHTML = LAB.map((l) => `<button class="lab-btn" data-type="${l.type}" style="--c:${l.c}">
+      <span class="l-ic">${SOC.icon(l.icon, 20)}</span><b>${l.title}</b><small>${l.desc}</small></button>`).join('') +
+    `<button class="lab-btn lab-campaign" id="campaign" style="--c:#8b5cf6">
+      <span class="l-ic">${SOC.icon('sparkle', 22)}</span>
+      <span><b>Run a full attack campaign</b><br><small>Recon → brute force → SQL injection, one after another</small></span></button>`;
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let tick;
+  async function launch(type, quiet, ip) {
+    const meta = SOC.eventMeta(type);
+    const r = await SOC.api('/api/simulate?type=' + encodeURIComponent(type) + (ip ? '&ip=' + encodeURIComponent(ip) : ''), { method: 'POST' });
+    if (!quiet) SOC.toast(meta.label + ' launched', r.eventsSent + ' event(s) from ' + r.sourceIp + '. Detection engine is on it.', 'success');
+    return r;
+  }
+  $('lab').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.lab-btn');
+    if (!btn || btn.disabled) return;
+    const all = $('lab').querySelectorAll('.lab-btn');
+    all.forEach((b) => (b.disabled = true));
+    try {
+      if (btn.id === 'campaign') {
+        let attackerIp = null;   // the same attacker for every stage, so the backend can link them into a chain
+        for (const [i, t] of ['port_scan', 'brute_force', 'sqli'].entries()) {
+          const r = await launch(t, true, attackerIp);
+          attackerIp = r.sourceIp;
+          SOC.toast('Stage ' + (i + 1) + '/3: ' + SOC.eventMeta(t).label, 'from ' + r.sourceIp, 'info', 2600);
+          tick();
+          if (i < 2) await sleep(1500);
+        }
+      } else {
+        await launch(btn.dataset.type);
+      }
+      tick();
+    } catch (err) {
+      SOC.toast('Could not launch the attack', err.message, 'error');
+    } finally {
+      all.forEach((b) => (b.disabled = false));
+    }
+  });
+  $('refreshBtn').addEventListener('click', () => { tick(); SOC.toast('Refreshed', '', 'info', 1400); });
+
+  // ---------- main refresh loop ----------
+  async function load() {
+    const [stats, list, chains, events] = await Promise.all([SOC.api('/api/stats'), SOC.api('/api/incidents'), SOC.api('/api/chains'), SOC.api('/api/events/recent')]);
+    // announce brand-new incidents (not on the very first load)
+    const maxNow = list.reduce((m, i) => Math.max(m, i.incidentId), 0);
+    if (state.maxId !== null && maxNow > state.maxId) {
+      const fresh = list.filter((i) => i.incidentId > state.maxId).reverse();
+      fresh.forEach((i) => state.fresh.add(i.incidentId));
+      fresh.slice(0, 3).forEach((i) => SOC.toast('New ' + i.severity + ' incident #' + i.incidentId, SOC.eventMeta(i.eventType).label + ' from ' + (i.sourceIp || 'unknown'), i.severity === 'CRITICAL' ? 'alert' : 'info'));
+    }
+    state.maxId = maxNow;
+
+    updateStats(stats);
+    SOC.setNavBadge(stats.awaitingApproval);
+    renderTimeline(stats.hourly);
+    renderDonut(stats.bySeverity);
+    renderTactics(stats.byTactic);
+    renderCsf(stats.byCsf);
+    SOC.paintTop(stats);
+    renderGauge(stats);
+    renderStream(events);
+    renderSpark(stats.hourly);
+    renderPerf(stats);
+    renderTopIps(stats.topIps || []);
+    renderChains(chains);
+    renderFeed(list);
+    state.first = false;
+  }
+  tick = SOC.poll(load, 3000);
+})();
+</script>
+</body>
+</html>

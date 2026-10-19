@@ -1,0 +1,26 @@
+services:
+  db:
+    image: ankane/pgvector:latest
+    container_name: socgpt-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: socgpt
+      POSTGRES_PASSWORD: socgpt_dev_password
+      POSTGRES_DB: socgpt
+    ports:
+      - "5433:5432"
+    volumes:
+      - socgpt_pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+
+  # Catches every e-mail the app sends. Read them at http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: socgpt-mail
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP (the backend sends here)
+      - "8025:8025"   # web inbox
+
+volumes:
+  socgpt_pgdata:

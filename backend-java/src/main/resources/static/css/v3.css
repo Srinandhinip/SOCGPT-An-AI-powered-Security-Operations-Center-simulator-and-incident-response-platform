@@ -1,0 +1,64 @@
+/* ==========================================================================
+   v3: status bar, threat gauge, live sensor stream, KPI sparkline.
+   Uses the original glass look (style.css); no global overrides.
+   ========================================================================== */
+.main { padding-top: 0; }
+
+/* ---------- top status bar ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  margin: 0 -36px 24px; padding: 11px 36px; font-size: 12.5px; color: var(--muted);
+  background: rgba(8, 12, 24, .72); border-bottom: 1px solid var(--border);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+.tb-item { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.tb-item b { color: var(--text); font-weight: 700; }
+.tb-label { font-size: 10.5px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--dim); font-weight: 700; }
+.tb-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(52, 211, 153, .6); animation: pulse-green 2s infinite; }
+.tb-dot.off { background: var(--bad); animation: none; }
+.tb-sep { width: 1px; height: 18px; background: var(--border-2); }
+.tb-right { margin-left: auto; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.tb-clock { font-family: var(--mono); font-size: 12.5px; color: var(--text); letter-spacing: .4px; }
+.threat-pill {
+  font-weight: 800; letter-spacing: 1.1px; font-size: 11px; text-transform: uppercase; padding: 3px 11px; border-radius: 999px;
+  color: var(--tc); background: color-mix(in srgb, var(--tc) 14%, transparent); border: 1px solid color-mix(in srgb, var(--tc) 55%, transparent);
+}
+
+/* ---------- KPI sparkline ---------- */
+.spark { position: absolute; right: 16px; bottom: 44px; width: 84px; height: 32px; z-index: 1; }
+.spark path.line { fill: none; stroke: var(--cyan); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; filter: drop-shadow(0 0 4px rgba(34, 211, 238, .6)); }
+.spark path.area { fill: url(#sparkFill); opacity: .3; }
+
+/* ---------- ops row: threat gauge + live event stream ---------- */
+.ops { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(0, 2.1fr); gap: 20px; margin-top: 20px; }
+.gauge-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.gauge { width: 100%; max-width: 300px; }
+.gauge .track { fill: none; stroke: rgba(255, 255, 255, .07); stroke-width: 16; stroke-linecap: round; }
+.gauge .val { fill: none; stroke-width: 16; stroke-linecap: round; transition: stroke-dashoffset 1.1s cubic-bezier(.2, .8, .2, 1), stroke .4s; filter: drop-shadow(0 0 8px var(--tc)); }
+.gauge .tick { stroke: rgba(255, 255, 255, .25); stroke-width: 1.5; }
+.gauge .needle { transition: transform 1.1s cubic-bezier(.2, .8, .2, 1); transform-origin: 150px 150px; }
+.gauge-level { font-size: 26px; font-weight: 800; letter-spacing: 3px; color: var(--tc); text-shadow: 0 0 22px var(--tc); margin-top: -34px; }
+.gauge-sub { color: var(--muted); font-size: 12px; text-align: center; max-width: 260px; }
+.gauge-legend { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+.gauge-legend span { font-size: 10px; font-weight: 800; letter-spacing: .8px; padding: 2px 8px; border-radius: 999px; color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); opacity: .55; }
+.gauge-legend span.on { opacity: 1; background: color-mix(in srgb, var(--c) 16%, transparent); }
+
+.stream { font-family: var(--mono); font-size: 12px; background: rgba(3, 6, 14, .55); border: 1px solid var(--border); border-radius: 12px; padding: 8px 0; height: 258px; overflow: hidden; position: relative; }
+.stream::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background: linear-gradient(transparent, rgba(6, 9, 18, .95)); pointer-events: none; }
+.s-line { display: grid; grid-template-columns: 64px 98px minmax(0, 1fr) 54px 138px; gap: 10px; padding: 4px 14px; align-items: center; white-space: nowrap; border-left: 2px solid transparent; }
+.s-line:hover { background: rgba(255, 255, 255, .04); }
+.s-line.new { animation: streamIn .8s ease-out; border-left-color: var(--cyan); }
+.s-line .t { color: var(--dim); }
+.s-line .ip { color: #9ad1ff; overflow: hidden; text-overflow: ellipsis; }
+.s-line .tag { font-weight: 800; letter-spacing: .5px; color: var(--c); overflow: hidden; text-overflow: ellipsis; }
+.s-line .m { color: #c4b5fd; }
+.s-line .tac { color: var(--muted); overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.stream-head { display: flex; justify-content: space-between; color: var(--dim); font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; padding: 0 14px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+@keyframes streamIn { from { background: rgba(34, 211, 238, .22); transform: translateX(-8px); opacity: 0; } to { background: transparent; transform: none; opacity: 1; } }
+
+@media (max-width: 1100px) {
+  .ops { grid-template-columns: 1fr; }
+  .s-line { grid-template-columns: 62px 96px minmax(0, 1fr) 52px; }
+  .s-line .tac { display: none; }
+}
+@media (max-width: 700px) { .topbar { gap: 10px; margin: 0 -16px 16px; padding: 8px 16px; } .tb-right { margin-left: 0; } }

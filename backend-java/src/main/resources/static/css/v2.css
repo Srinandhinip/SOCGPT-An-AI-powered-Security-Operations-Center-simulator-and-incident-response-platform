@@ -1,0 +1,120 @@
+/* ==========================================================================
+   v2 additions: sign-in, role pills, risk breakdown, attack chains, similar
+   incidents, performance cards. Loaded after style.css.
+   ========================================================================== */
+input[type="password"] {
+  background: rgba(255, 255, 255, .05); border: 1px solid var(--border-2); color: var(--text);
+  border-radius: 11px; padding: 9px 12px; font: inherit; outline: none; transition: .15s; width: 100%;
+}
+input[type="password"]:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(79, 140, 255, .22); }
+
+.icon-btn {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; cursor: pointer; flex: none;
+  background: transparent; border: 1px solid transparent; color: var(--muted); transition: .15s;
+}
+.icon-btn:hover { background: var(--panel-2); border-color: var(--border-2); color: var(--text); }
+
+/* sidebar user card */
+.who { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.who b { font-size: 13.5px; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-pill { align-self: flex-start; font-size: 10px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; padding: 2px 8px; border-radius: 99px; background: rgba(255, 255, 255, .07); color: var(--muted); border: 1px solid var(--border); }
+.role-pill.r-admin { color: #ffb4c0; background: rgba(255, 59, 92, .12); border-color: rgba(255, 59, 92, .35); }
+.role-pill.r-soc_manager { color: #c4b5fd; background: rgba(139, 92, 246, .14); border-color: rgba(139, 92, 246, .4); }
+.role-pill.r-analyst { color: var(--cyan); background: rgba(34, 211, 238, .1); border-color: rgba(34, 211, 238, .32); }
+
+/* login */
+.login-wrap { position: relative; z-index: 1; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+.login-card {
+  width: min(440px, 100%); padding: 34px 32px 28px; border-radius: 24px; background: rgba(14, 19, 40, .72);
+  border: 1px solid var(--border-2); box-shadow: 0 30px 90px rgba(0, 0, 0, .6), 0 0 0 1px rgba(79, 140, 255, .08);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); animation: pop .5s cubic-bezier(.2, .9, .3, 1.1);
+}
+.login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+.login-card h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -.3px; }
+.login-sub { margin: 0 0 22px; color: var(--muted); font-size: 13.5px; }
+.login-card label { display: block; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); margin: 14px 0 6px; }
+.pw { position: relative; }
+.pw input { padding-right: 44px; }
+.pw .icon-btn { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); }
+.login-error { margin: 14px 0 0; padding: 10px 13px; border-radius: 11px; background: rgba(255, 59, 92, .12); border: 1px solid rgba(255, 59, 92, .4); color: #ffb4c0; font-size: 13px; }
+.login-error[hidden] { display: none; }
+.login-card #submit { margin-top: 18px; padding: 12px 16px; font-size: 15px; }
+.demo { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); }
+.demo-title { font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+.demo-title span { text-transform: none; letter-spacing: 0; font-weight: 600; }
+.demo-list { display: flex; flex-direction: column; gap: 8px; }
+.demo-chip { display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer; padding: 9px 12px; border-radius: 12px; background: rgba(255, 255, 255, .035); border: 1px solid var(--border); transition: .15s; }
+.demo-chip:hover { background: var(--panel-2); border-color: var(--border-2); transform: translateX(2px); }
+.demo-chip b { display: block; font-size: 13.5px; }
+.demo-chip small { display: block; color: var(--muted); font-size: 11.5px; }
+
+/* decision footer: explains why a button is disabled */
+.d-foot .note.warn { color: #f7c9a1; background: rgba(255, 138, 61, .1); border: 1px solid rgba(255, 138, 61, .32); border-radius: 11px; padding: 9px 12px; }
+.callout.bad { background: rgba(255, 59, 92, .09); border-color: rgba(255, 59, 92, .38); color: #ffc1cb; }
+.d-foot .btn-row { display: flex; gap: 10px; flex: 1 1 100%; }
+.d-foot .btn-row .btn { flex: 1; }
+
+/* chain badge on table rows */
+.chain-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; letter-spacing: .3px; padding: 1px 7px; border-radius: 99px; color: #f0abfc; background: rgba(217, 70, 239, .12); border: 1px solid rgba(217, 70, 239, .38); margin-left: 6px; vertical-align: 1px; }
+
+/* risk breakdown */
+.risk-hero { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.risk-hero b { font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; }
+.risk-hero span { color: var(--muted); }
+.risk-bar { height: 12px; border-radius: 99px; background: rgba(255, 255, 255, .07); overflow: hidden; margin-bottom: 16px; }
+.risk-bar i { display: block; height: 100%; border-radius: 99px; background: var(--c); box-shadow: 0 0 16px var(--c); transition: width .9s cubic-bezier(.2, .8, .2, 1); }
+.rf-list { display: flex; flex-direction: column; gap: 8px; }
+.rf { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; padding: 11px 14px; border-radius: 13px; background: rgba(255, 255, 255, .03); border: 1px solid var(--border); }
+.rf .pts { font-family: var(--mono); font-weight: 800; font-size: 17px; text-align: center; color: var(--warn); }
+.rf.base .pts { color: var(--text); }
+.rf.esc { border-color: rgba(255, 138, 61, .45); background: rgba(255, 138, 61, .08); }
+.rf.esc .pts { color: var(--high); }
+.rf b { display: block; font-size: 13.5px; }
+.rf small { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+
+/* attack chain */
+.chain-viz { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 4px 0 12px; }
+.chain-step { flex: 1 0 150px; position: relative; padding: 14px 14px 12px; border-radius: 14px; background: rgba(255, 255, 255, .04); border: 1px solid var(--border); text-decoration: none; display: block; transition: .15s; }
+.chain-step:hover { border-color: var(--border-2); background: var(--panel-2); }
+.chain-step.here { border-color: rgba(217, 70, 239, .6); box-shadow: 0 0 0 1px rgba(217, 70, 239, .25), 0 0 26px -8px rgba(217, 70, 239, .6); }
+.chain-step small { display: block; color: var(--dim); font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; font-weight: 800; }
+.chain-step b { display: block; margin: 4px 0 6px; font-size: 14px; }
+.chain-step .meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11.5px; color: var(--muted); }
+.chain-arrow { flex: 0 0 26px; display: grid; place-items: center; color: var(--dim); }
+.chain-summary { padding: 14px 16px; border-radius: 14px; background: rgba(217, 70, 239, .07); border: 1px solid rgba(217, 70, 239, .3); margin-bottom: 14px; }
+.chain-summary b { display: block; font-size: 15px; margin-bottom: 4px; }
+.chain-summary span { color: var(--muted); font-size: 12.5px; }
+
+/* similar past incidents */
+.sim-list { display: flex; flex-direction: column; gap: 10px; }
+.sim-item { display: block; text-decoration: none; padding: 13px 15px; border-radius: 14px; background: rgba(255, 255, 255, .035); border: 1px solid var(--border); transition: .15s; }
+.sim-item:hover { background: var(--panel-2); border-color: var(--border-2); }
+.sim-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 5px; }
+.sim-top b { font-size: 13.5px; }
+.sim-score { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--cyan); }
+.sim-item p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.sim-outcome { display: inline-flex; align-items: center; gap: 5px; margin-top: 7px; font-size: 11.5px; font-weight: 700; }
+.sim-outcome.ok { color: var(--ok); }
+.sim-outcome.no { color: var(--bad); }
+
+/* Command Center: performance, top IPs, chains */
+.perf-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.perf { padding: 14px 16px; border-radius: 14px; background: rgba(255, 255, 255, .035); border: 1px solid var(--border); }
+.perf small { display: block; color: var(--dim); font-size: 10.5px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+.perf b { display: block; font-size: 25px; margin: 4px 0 2px; font-variant-numeric: tabular-nums; letter-spacing: -.3px; }
+.perf span { color: var(--muted); font-size: 12px; }
+.ip-row { display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px; gap: 12px; align-items: center; padding: 9px 10px; border-radius: 11px; text-decoration: none; transition: .15s; }
+.ip-row:hover { background: var(--panel-2); }
+.ip-row .mono { font-size: 13px; }
+.ip-row .cnt { color: var(--muted); font-size: 12px; text-align: right; }
+.ip-row .risk-mini { height: 7px; border-radius: 99px; background: rgba(255, 255, 255, .07); overflow: hidden; }
+.ip-row .risk-mini i { display: block; height: 100%; border-radius: 99px; background: var(--c); }
+.chain-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.chain-grid .chain-card { margin-bottom: 0; }
+.chain-card { display: block; text-decoration: none; padding: 13px 15px; border-radius: 14px; margin-bottom: 10px; background: rgba(217, 70, 239, .06); border: 1px solid rgba(217, 70, 239, .28); transition: .15s; }
+.chain-card:hover { background: rgba(217, 70, 239, .11); transform: translateX(2px); }
+.chain-card b { display: block; font-size: 13.5px; }
+.chain-card small { display: block; color: var(--muted); margin-top: 3px; font-size: 12px; }
+.chain-card .top { display: flex; gap: 8px; align-items: center; margin-bottom: 5px; flex-wrap: wrap; }
+
+@media (max-width: 700px) { .perf-grid { grid-template-columns: 1fr; } }

@@ -1,0 +1,77 @@
+/* Sign-in page: split screen. Left = brand and radar, right = form. */
+.login-body { overflow-x: hidden; }
+.lg { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr); min-height: 100vh; }
+
+/* ---------- hero ---------- */
+.lg-hero {
+  position: relative; display: flex; flex-direction: column; padding: 34px 48px 28px; overflow: hidden;
+  background:
+    radial-gradient(700px 500px at 20% 10%, rgba(79, 140, 255, .22), transparent 62%),
+    radial-gradient(600px 500px at 90% 95%, rgba(139, 92, 246, .22), transparent 62%),
+    linear-gradient(180deg, rgba(10, 16, 32, .9), rgba(6, 9, 18, .95));
+  border-right: 1px solid var(--border);
+}
+.lg-brand { display: flex; align-items: center; gap: 12px; position: relative; z-index: 2; }
+.lg-mid { position: relative; z-index: 2; margin-top: 9vh; max-width: 470px; }
+.lg-mid h2 { margin: 0 0 14px; font-size: clamp(30px, 3.6vw, 46px); line-height: 1.08; letter-spacing: -1px; font-weight: 800; }
+.lg-mid h2 span { background: linear-gradient(90deg, #22d3ee, #8b5cf6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lg-mid > p { margin: 0 0 28px; color: var(--muted); font-size: 15px; line-height: 1.6; }
+.lg-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+.lg-points li { display: flex; gap: 14px; align-items: flex-start; }
+.lg-points li > span { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 12px; color: var(--cyan); background: rgba(34, 211, 238, .09); border: 1px solid rgba(34, 211, 238, .25); }
+.lg-points b { display: block; font-size: 14.5px; }
+.lg-points small { color: var(--muted); font-size: 12.5px; }
+.lg-foot { margin-top: auto; position: relative; z-index: 2; display: flex; gap: 10px; flex-wrap: wrap; padding-top: 24px; }
+.lg-foot span { font-size: 11px; font-weight: 700; letter-spacing: .6px; color: var(--muted); padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border-2); background: rgba(255, 255, 255, .04); }
+
+/* radar */
+.radar { position: absolute; right: -90px; bottom: -70px; width: min(560px, 62%); opacity: .9; z-index: 1; pointer-events: none; }
+.sweep { transform-origin: 200px 200px; animation: sweepSpin 5.5s linear infinite; }
+@keyframes sweepSpin { to { transform: rotate(360deg); } }
+.b { fill: #ff3b5c; filter: drop-shadow(0 0 6px #ff3b5c); opacity: 0; animation: blip 5.5s ease-out infinite; }
+.b1 { animation-delay: .4s; } .b2 { animation-delay: 2.3s; fill: #fbbf24; filter: drop-shadow(0 0 6px #fbbf24); }
+.b3 { animation-delay: 3.6s; } .b4 { animation-delay: 4.8s; fill: #fbbf24; filter: drop-shadow(0 0 6px #fbbf24); }
+@keyframes blip { 0% { opacity: 0; transform: scale(.4); } 6% { opacity: 1; transform: scale(1.5); } 40% { opacity: .85; transform: scale(1); } 85%, 100% { opacity: 0; } }
+.b { transform-box: fill-box; transform-origin: center; }
+
+/* ---------- form panel ---------- */
+.lg-panel { display: grid; place-items: center; padding: 32px 24px; }
+.lg-card { width: min(430px, 100%); }
+.lg-card.shake { animation: shake .4s; }
+@keyframes shake { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+.lg-secure { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ok); margin-bottom: 14px; padding: 4px 11px; border-radius: 999px; background: rgba(52, 211, 153, .09); border: 1px solid rgba(52, 211, 153, .28); }
+.lg-card h1 { margin: 0 0 6px; font-size: 32px; letter-spacing: -.6px; font-weight: 800; }
+.lg-sub { margin: 0 0 24px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+
+.fld { margin-bottom: 16px; }
+.fld label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 7px; }
+.inp { position: relative; }
+.inp > span { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--dim); display: grid; pointer-events: none; }
+.inp input { height: 48px; padding: 0 46px 0 44px; font-size: 15px; border-radius: 12px; }
+.inp .icon-btn { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); }
+.caps { margin-top: 7px; font-size: 12px; font-weight: 700; color: var(--warn); }
+.remember { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--muted); margin: 2px 0 6px; cursor: pointer; }
+.remember input { width: 16px; height: 16px; accent-color: var(--blue); cursor: pointer; }
+.lg-card #submit { height: 50px; margin-top: 14px; font-size: 15.5px; border-radius: 12px; }
+.lg-card .login-error { margin-top: 4px; }
+
+.demo { margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--border); }
+.demo-title { display: flex; align-items: baseline; justify-content: space-between; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+.demo-title em { text-transform: none; letter-spacing: 0; font-weight: 600; font-style: normal; }
+.demo-chip { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, .035); border: 1px solid var(--border); transition: .15s; }
+.demo-chip:hover { background: var(--panel-2); border-color: var(--border-2); transform: translateX(3px); }
+.dc-txt { flex: 1; min-width: 0; }
+.dc-txt b { display: block; font-size: 13.5px; }
+.dc-txt small { display: block; color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demo-chip .role-pill { align-self: center; }
+.lg-note { margin: 18px 0 0; font-size: 11.5px; color: var(--dim); line-height: 1.5; }
+
+@media (max-width: 960px) {
+  .lg { grid-template-columns: 1fr; }
+  .lg-hero { padding: 24px 22px 20px; min-height: 0; }
+  .lg-mid { margin-top: 22px; }
+  .lg-points, .radar { display: none; }
+  .lg-mid > p { margin-bottom: 4px; }
+  .lg-foot { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .sweep, .b, .lg-card.shake { animation: none; } .b { opacity: .8; } }
