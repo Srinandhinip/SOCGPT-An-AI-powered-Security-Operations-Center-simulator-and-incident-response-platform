@@ -36,7 +36,7 @@
 - [REST API Reference](#-rest-api-reference)
 - [Testing & Validation](#-testing--validation)
 - [Security & Production Hardening](#-security--production-hardening)
-- [Academic Context & Authors](#-academic-context--authors)
+- [Engineering Concepts & Architecture](#-engineering-concepts--architecture)
 
 ---
 
@@ -483,16 +483,12 @@ When deploying SOCGPT in an enterprise environment:
 
 ---
 
-## 🎓 Academic Context & Authors
+## 🎓 Engineering Concepts & Architecture
 
-This project was developed as a comprehensive capstone combining **Database Management Systems (DBMS)** and **Advanced Programming (AP)**.
+This project was developed combining core principles of **Database Management Systems (DBMS)** and **Advanced Programming (AP)**.
 
 - **DBMS Concepts Applied**: Normalized 3NF schemas, foreign key constraints, composite and partial indexes, ACID transactional boundaries, vector cosine distance searches (`pgvector`), and idempotent schema migrations (`migrate_v2.sql`).
 - **Advanced Programming Concepts Applied**: Java 21 features (Records, Pattern Matching, Stream API), concurrent thread pools, custom security annotations with runtime reflection, byte-level file generators, REST microservice architecture, and Python LangGraph state machines.
-
-### Project Team
-- **Srinandhini P** — Roll No: `CH.SC.U4CYS25036`
-- **Magita** — Roll No: `CH.SC.U4CYS25015`
 
 ---
 
